@@ -20,6 +20,14 @@ def convert_lap_time(LapTime):
     # total time as a float in SS.MM format
     return round(total_seconds, 3)  # Round to 3 decimal places for milliseconds
 
+def get_weather_for_lap(lap_row, weather_data):
+    lap_start = lap_row['LapStartTime']
+    lap_end = lap_start + lap_row['LapTime']
+    relevant_weather = weather_data[(weather_data['Time'] >= lap_start) & (weather_data['Time'] <= lap_end)]
+    if not relevant_weather.empty:
+        return relevant_weather['Rainfall'].max(), relevant_weather['TrackTemp'].mean()
+    return 0, None  # Default: No rainfall, unknown track temp
+
 tyre_mapping = {
     'SOFT': 1,
     'MEDIUM': 2,
@@ -124,13 +132,20 @@ for year in years:
                 
                 laps = SessionData.laps
 
-                for lap in laps.itertuples():
-                    # make sure laptime is not NaN
+                weather = laps.get_weather_data()
+
+                # Convert laps to DataFrame to handle weather data mapping
+                laps_df = laps.copy()
+                laps_df['Rainfall'], laps_df['TrackTemp'] = zip(*laps_df.apply(get_weather_for_lap, axis=1, weather_data=weather))
+
+                # Iterate over laps with rainfall data
+                for lap in laps_df.itertuples():
+                    # Make sure laptime is not NaN
                     if not pd.isna(lap.LapTime):
-                        # check if driver exits
+                        # Check if driver exists
                         driver = db_session.query(Driver).filter_by(id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
                         if not driver:
-                            print("bad")
+                            print("Driver not found in session drivers map.")
 
                         # Create lap record
                         lap_record = Lap(
@@ -141,10 +156,13 @@ for year in years:
                             position=lap.Position,
                             tyre=tyre_mapping.get(lap.Compound, -1),
                             tyre_laps=int(lap.TyreLife),
-                            pit=not pd.isna(lap.PitOutTime)
+                            pit=not pd.isna(lap.PitOutTime),
+                            rainfall=lap.Rainfall,
+                            track_temp=lap.TrackTemp
                         )
                         db_session.add(lap_record)
                 db_session.commit()
+
             except ValueError:
                 print("Sprint Weekend, no P2/3")
 
@@ -154,7 +172,7 @@ for year in years:
 
 end_time = time.time()
 elapsed_time = end_time - start_time
-print(elapsed_time)
+print(elapsed_time/60)
 
 db_session.commit()
 db_session.close()

@@ -93,8 +93,9 @@ class Lap(Base):
     position = Column(Integer, nullable=True)
     tyre = Column(Integer, nullable=True)
     tyre_laps = Column(Integer, nullable=True)
-
     pit = Column(Boolean, nullable=False)  # 0 = No pit, 1 = Pit
+    rainfall = Column(Boolean, nullable=True)  # 0 = No rain, 1 = rain
+    track_temp = Column(Float, nullable=True)
     
     # relationships
     session = relationship("Session", back_populates="laps")
@@ -104,7 +105,7 @@ class Lap(Base):
 
 def init_db():
     # create db if isnt already
-    engine = create_engine('sqlite:///f1_data_test.db')
+    engine = create_engine('sqlite:///f1_data_V2.db')
     Session = sessionmaker(bind=engine)
     Base.metadata.create_all(engine)
 
