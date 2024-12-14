@@ -104,7 +104,7 @@ class Lap(Base):
 
 def init_db():
     # create db if isnt already
-    engine = create_engine('sqlite:////home/ben/individual-project-BenMcD23/DB/f1_data_test.db')
+    engine = create_engine('sqlite:////home/ben/Individual_Project/DB/f1_data_test.db')
     Session = sessionmaker(bind=engine)
     Base.metadata.create_all(engine)
 
