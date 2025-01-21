@@ -102,6 +102,20 @@ class Lap(Base):
     driver = relationship("Driver", back_populates="laps")
 
 
+class TyreDeg(Base):
+    __tablename__ = 'tyre_deg'
+    
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    race_id = Column(Integer, ForeignKey('sessions.id'), nullable=False)
+    driver_id = Column(Integer, ForeignKey('drivers.id'), nullable=False)
+    a = Column(Integer, nullable=False)
+    b = Column(Integer, nullable=False)
+    c = Column(Integer, nullable=False)
+    
+    # Relationships
+    session = relationship("Session", back_populates="tyre_deg")
+    driver = relationship("Driver", back_populates="tyre_deg")
+
 
 def init_db():
     # create db if isnt already
