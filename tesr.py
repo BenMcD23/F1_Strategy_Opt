@@ -21,12 +21,5 @@ session.load()
 
 
 laps = session.laps
-print(laps)
+print(laps.columns.tolist())
 
-weather_data = session.laps.get_weather_data()
-print(weather_data)
-
-rainfall_data = weather_data[weather_data['Rainfall'] == True]
-
-# Print the filtered data
-print(rainfall_data)

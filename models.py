@@ -7,7 +7,7 @@ Base = declarative_base()
 class Circuit(Base):
     __tablename__ = 'circuits'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    circuit_id = Column(Integer, primary_key=True, autoincrement=True)
     circuit_name = Column(String, nullable=False)
     
     # relationship to racing_weekends
@@ -28,10 +28,10 @@ class Season(Base):
 class RacingWeekend(Base):
     __tablename__ = 'racing_weekends'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    racing_weekend_id = Column(Integer, primary_key=True, autoincrement=True)
     year = Column(Integer, ForeignKey('seasons.year'), nullable=False)
     round = Column(Integer, nullable=False)
-    circuit_id = Column(Integer, ForeignKey('circuits.id'), nullable=False)
+    circuit_id = Column(Integer, ForeignKey('circuits.circuit_id'), nullable=False)
 
     # relationships
     season = relationship("Season", back_populates="racing_weekends")
@@ -43,7 +43,7 @@ class RacingWeekend(Base):
 class Driver(Base):
     __tablename__ = 'drivers'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    driver_id = Column(Integer, primary_key=True, autoincrement=True)
     driver_num = Column(Integer, nullable=False)
     driver_name = Column(String, nullable=False)
     driver_short = Column(String, nullable=False)
@@ -51,29 +51,32 @@ class Driver(Base):
     # relationships
     session_results = relationship("SessionResult", back_populates="driver")
     laps = relationship("Lap", back_populates="driver")
+    tyre_deg = relationship("TyreDeg", back_populates="driver")
 
 
 # sessions Table
 class Session(Base):
     __tablename__ = 'sessions'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    weekend_id = Column(Integer, ForeignKey('racing_weekends.id'), nullable=False)
+    session_id = Column(Integer, primary_key=True, autoincrement=True)
+    weekend_id = Column(Integer, ForeignKey('racing_weekends.racing_weekend_id'), nullable=False)
     session_type = Column(String, nullable=False)
     
     # relationship
     racing_weekend = relationship("RacingWeekend", back_populates="sessions")
     session_results = relationship("SessionResult", back_populates="session")
     laps = relationship("Lap", back_populates="session")
+    tyre_deg = relationship("TyreDeg", back_populates="session")
+
 
 
 # session results Table
 class SessionResult(Base):
     __tablename__ = 'session_results'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey('sessions.id'), nullable=False)
-    driver_id = Column(Integer, ForeignKey('drivers.id'), nullable=False)
+    session_result_id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey('sessions.session_id'), nullable=False)
+    driver_id = Column(Integer, ForeignKey('drivers.driver_id'), nullable=False)
     position = Column(Integer, nullable=True)
     
     # Relationships
@@ -85,9 +88,9 @@ class SessionResult(Base):
 class Lap(Base):
     __tablename__ = 'laps'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    session_id = Column(Integer, ForeignKey('sessions.id'), nullable=False)
-    driver_id = Column(Integer, ForeignKey('drivers.id'), nullable=False)
+    lap_id = Column(Integer, primary_key=True, autoincrement=True)
+    session_id = Column(Integer, ForeignKey('sessions.session_id'), nullable=False)
+    driver_id = Column(Integer, ForeignKey('drivers.driver_id'), nullable=False)
     lap_num = Column(Integer, nullable=True)
     lap_time = Column(Float, nullable=False)
     position = Column(Integer, nullable=True)
@@ -105,12 +108,13 @@ class Lap(Base):
 class TyreDeg(Base):
     __tablename__ = 'tyre_deg'
     
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    race_id = Column(Integer, ForeignKey('sessions.id'), nullable=False)
-    driver_id = Column(Integer, ForeignKey('drivers.id'), nullable=False)
-    a = Column(Integer, nullable=False)
-    b = Column(Integer, nullable=False)
-    c = Column(Integer, nullable=False)
+    tyre_deg_id = Column(Integer, primary_key=True, autoincrement=True)
+    race_id = Column(Integer, ForeignKey('sessions.session_id'), nullable=False)
+    driver_id = Column(Integer, ForeignKey('drivers.driver_id'), nullable=False)
+    tyre_type = Column(Integer, nullable=False)
+    a = Column(Float, nullable=True)
+    b = Column(Float, nullable=True)
+    c = Column(Float, nullable=True)
     
     # Relationships
     session = relationship("Session", back_populates="tyre_deg")
@@ -119,7 +123,7 @@ class TyreDeg(Base):
 
 def init_db():
     # create db if isnt already
-    engine = create_engine('sqlite:///f1_data_V2.db')
+    engine = create_engine('sqlite:///f1_data_V3.db')
     Session = sessionmaker(bind=engine)
     Base.metadata.create_all(engine)
 

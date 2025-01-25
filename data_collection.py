@@ -7,12 +7,108 @@ logging.getLogger('fastf1').setLevel(logging.WARNING)
 import pandas as pd
 from datetime import datetime
 import time
-from models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap
+from models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, TyreDeg
+
+import numpy as np
 
 db_engine, db_session = init_db()
 
 # ff1.Cache.set_disabled()
 ff1.Cache.enable_cache(r'D:\FastF1_Data\cache')
+
+
+
+
+def correct_fuel_effect(df, max_fuel_kg=110, fuel_effect_per_kg=0.03):
+    # Adjust lap times in a race for the effect of fuel weight
+    max_laps = df['lap_num'].max()
+    df.loc[:, 'fuel_weight'] = max_fuel_kg - (df['lap_num'] - 1) * (max_fuel_kg / max_laps)
+    df.loc[:, 'fuel_correction'] = df['fuel_weight'] * fuel_effect_per_kg
+    df.loc[:, 'fuel_corrected_lap_time'] = df['lap_time'] - df['fuel_correction']
+    return df
+
+def assign_stint_numbers(df):
+    df = df.copy()
+
+
+    # Assign stint numbers to laps based on pit stops for each driver
+    df.loc[:, 'stint'] = np.nan
+
+    for driver in df['driver_id'].unique():
+        driver_data = df[df['driver_id'] == driver]
+        stint_number = 1
+        for i in driver_data.index:
+            if driver_data.loc[i, 'pit'] and i != driver_data.index[0]:
+                stint_number += 1
+            df.loc[i, 'stint'] = stint_number
+    df.loc[:, 'stint'] = df['stint'].astype(int)
+    return df
+
+def analyze_tyre_degradation(df, race_id, db_session: Session):
+    # Correct for fuel effect
+    df = correct_fuel_effect(df)
+
+    # Normalize lap times based on the fastest lap and filter out outliers
+    fastest_lap_time = df['fuel_corrected_lap_time'].min()
+    df = df[df['fuel_corrected_lap_time'] <= 1.03 * fastest_lap_time]  # Filter out lap times more than 3% slower
+
+    # Calculate the difference from the fastest lap for each lap
+    df.loc[:, 'time_diff'] = df['fuel_corrected_lap_time'] - fastest_lap_time
+    # Assign stint numbers
+    df = assign_stint_numbers(df)
+
+    # Store polynomial coefficients for each driver and tyre type
+    driver_tyre_poly_coeffs = {}
+
+    # Loop over each driver
+    for driver in df['driver_id'].unique():
+        driver_data = df[df['driver_id'] == driver]
+        driver_tyre_poly_coeffs[driver] = {}
+
+        # Loop over each tyre type
+        for tyre in driver_data['tyre'].unique():
+            tyre_data = driver_data[driver_data['tyre'] == tyre]
+            poly_coeffs_list = []
+
+            # Loop through each stint for the given tyre type
+            for stint in tyre_data['stint'].unique():
+                stint_data = tyre_data[tyre_data['stint'] == stint]
+                x = stint_data['lap_num']
+                y = stint_data['time_diff']
+
+                # Polynomial regression (2nd degree)
+                if len(x) > 2:
+                    poly_coeffs = np.polyfit(x, y, 2)
+                    poly_coeffs_list.append(poly_coeffs)
+
+            # Average the polynomial coefficients for the tyre type across stints for this driver
+            if poly_coeffs_list:
+                avg_poly_coeffs = np.mean(poly_coeffs_list, axis=0)
+                driver_tyre_poly_coeffs[driver][tyre] = avg_poly_coeffs
+
+    # Save the polynomial coefficients to the TyreDeg table
+    for driver, tyre_coeffs in driver_tyre_poly_coeffs.items():
+
+        # driverEntry = db_session.query(Driver).filter_by(driver_id=int(driver)).first()
+
+        for tyre, coeffs in tyre_coeffs.items():
+            tyre_deg_entry = TyreDeg(
+                race_id=race_id,
+                driver_id=int(driver),
+                tyre_type=int(tyre),
+                a=coeffs[0],  # x^2 coefficient
+                b=coeffs[1],  # x coefficient
+                c=coeffs[2]   # constant term
+            )
+            db_session.add(tyre_deg_entry)
+
+    # Commit changes to the database
+    db_session.commit()
+
+
+
+
+
 
 def convert_lap_time(LapTime):
     total_seconds = LapTime.total_seconds()
@@ -38,7 +134,7 @@ tyre_mapping = {
 
 start_time = time.time()
 
-years = range(2019, 2025)
+years = range(2019, 2020)
 
 available_years = []
 
@@ -58,12 +154,12 @@ for year in years:
     # get rid of pre-season testing
     schedule = schedule[schedule['RoundNumber'] != 0]
 
-    # count = 0
+    count = 0
     for _, event in schedule.iterrows():
-        # count += 1
+        count += 1
 
-        # if count == 3:
-        #     break
+        if count == 2:
+            break
         CurrentRoundNumber = event['RoundNumber']
 
 
@@ -92,7 +188,7 @@ for year in years:
 
                 print(f"Year:{year}  Round:{CurrentRoundNumber}  Session:{session_name}")
 
-                session = db_session.query(Session).filter_by(weekend_id=racing_weekend.id, session_type=session_name).first()
+                session = db_session.query(Session).filter_by(weekend_id=racing_weekend.racing_weekend_id, session_type=session_name).first()
                 if not session:
                     session = Session(racing_weekend=racing_weekend, session_type=session_name)
                     db_session.add(session)
@@ -112,7 +208,7 @@ for year in years:
                         db_session.add(driver)
                         db_session.commit()
 
-                    CurrentSessionDrivers.update({int(DriverNum): driver.id})
+                    CurrentSessionDrivers.update({int(DriverNum): driver.driver_id})
 
                 SessionData.load()
                 results = SessionData.results
@@ -120,7 +216,7 @@ for year in years:
 
                     if not pd.isna(result.Position):
 
-                        driver = db_session.query(Driver).filter_by(id=CurrentSessionDrivers[int(result.DriverNumber)]).first()
+                        driver = db_session.query(Driver).filter_by(driver_id=CurrentSessionDrivers[int(result.DriverNumber)]).first()
                         if not driver:
                             print("bad")
 
@@ -143,7 +239,7 @@ for year in years:
                     # Make sure laptime is not NaN
                     if not pd.isna(lap.LapTime):
                         # Check if driver exists
-                        driver = db_session.query(Driver).filter_by(id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
+                        driver = db_session.query(Driver).filter_by(driver_id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
                         if not driver:
                             print("Driver not found in session drivers map.")
 
@@ -162,6 +258,43 @@ for year in years:
                         )
                         db_session.add(lap_record)
                 db_session.commit()
+
+                # TYRE DEG
+                if session_name == "Race":
+
+                    query = db_session.query(
+                        Driver.driver_id,
+                        Lap.lap_num,
+                        Lap.pit,
+                        Lap.lap_time,
+                        Lap.tyre,
+                        Lap.tyre_laps,
+                    ).join(RacingWeekend.sessions) \
+                    .join(Session.laps) \
+                    .join(Lap.driver) \
+                    .filter(
+                        Session.session_id == session.session_id  # Ensure session_type is 'Race'
+                    ).all()
+
+                    # Convert result to a list of dictionaries
+                    data = [
+                        {
+                            'driver_id': row.driver_id,
+                            'lap_num': row.lap_num,
+                            'pit': row.pit,
+                            'tyre': row.tyre,
+                            'tyre_laps': row.tyre_laps,
+                            'lap_time': row.lap_time
+                        }
+                        for row in query
+                    ]
+
+                    # Create a DataFrame
+                    df = pd.DataFrame(data)
+
+                    # Show the DataFrame
+
+                    analyze_tyre_degradation(df, race_id=session.session_id, db_session=db_session)
 
             except ValueError:
                 print("Sprint Weekend, no P2/3")
