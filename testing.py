@@ -1,38 +1,21 @@
-from sqlalchemy.orm import joinedload
-from models import TyreDeg, Driver, Session, init_db, RacingWeekend  # Replace with your actual imports
-db_engine, db_session = init_db()
+import fastf1 as ff1
 
-# Query to fetch the session_id for 2019, Round 1, Race
-race_session = db_session.query(Session).join(
-    RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id
-).filter(
-    RacingWeekend.year == 2019,
-    RacingWeekend.round == 1,
-    Session.session_type == 'Race'
-).first()
+# Set up cache (recommended for faster loading)
+ff1.Cache.enable_cache(r'C:\Users\mcdon\OneDrive - University of Leeds\Desktop\individual-project-BenMcD23\cache')
 
-if race_session:
-    race_id = race_session.session_id
+# Load the session data for Round 5 (Miami GP)
+session = ff1.get_session(2019, 5, 'R')  # R = Race
+session.load()
 
-    # Query to fetch TyreDeg entries for the race session
-    tyre_deg_entries = db_session.query(TyreDeg).options(
-        joinedload(TyreDeg.driver),  # Eager load the related Driver
-        joinedload(TyreDeg.session)  # Eager load the related Session
-    ).filter(
-        TyreDeg.race_id == race_id
-    ).all()
+# Get all laps for Verstappen (driver number 33)
+ver_laps = session.laps.pick_driver('VER')
 
-    # Print the results
-    for entry in tyre_deg_entries:
-        print(f"""
-        TyreDeg ID: {entry.tyre_deg_id}
-        Race ID: {entry.race_id}
-        Driver: {entry.driver.driver_name} (ID: {entry.driver.driver_id})
-        Tyre Type: {entry.tyre_type}
-        Polynomial Coefficients:
-          a (x^2): {entry.a}
-          b (x): {entry.b}
-          c (constant): {entry.c}
-        """)
-else:
-    print("No race found for 2019, Round 1.")
+# Convert timedelta columns to seconds for readability
+ver_laps['LapTime'] = ver_laps['LapTime'].dt.total_seconds()
+ver_laps['Sector1Time'] = ver_laps['Sector1Time'].dt.total_seconds()
+ver_laps['Sector2Time'] = ver_laps['Sector2Time'].dt.total_seconds()
+ver_laps['Sector3Time'] = ver_laps['Sector3Time'].dt.total_seconds()
+
+# Print the laps DataFrame with driver number
+print(f"All laps for Verstappen (Driver #33) at 2023 Miami GP:")
+print(ver_laps[['DriverNumber', 'LapNumber', 'LapTime', 'Compound', 'TyreLife', 'Stint', 'PitOutTime', 'PitInTime']])
