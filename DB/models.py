@@ -123,7 +123,7 @@ class TeamCircuitStats(Base):
 	team = relationship("Team", back_populates="team_circuit_stats")
 
 def init_db():
-	engine = create_engine('sqlite:///f1_data_V2.db')
+	engine = create_engine('sqlite:////home/ben/Individual_Project/DB/f1_data.db')
 	Session = sessionmaker(bind=engine)
 	Base.metadata.create_all(engine)
 	return engine, Session()
