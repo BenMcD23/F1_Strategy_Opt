@@ -37,7 +37,7 @@ def assign_stint_numbers(df):
 	df["stint"] = df["stint"].astype(int)
 	return df
 
-def remove_laps_outside_percent(df, percentage=5):
+def remove_laps_outside_percent(df, percentage=3):
 	# Group by driver and apply the filtering logic to each driver"s laps
 	def _filter_driver_sector_laps(driver_sector_df):
 		# Calculate the threshold based on the fastest lap time for the driver and sector
