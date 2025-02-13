@@ -59,13 +59,13 @@ def remove_laps_outside_percent(df, percentage=3):
 
 
 def normalise_lap_times_by_sector(df):
-	# Group by driver and sector, then calculate the fastest lap time for each group
+	# Group by driver, sector, and stint, then calculate the fastest lap time for each group
 	df['fastest_sector_time'] = (
-		df.groupby(['driver_number', 'sector'])['fuel_corrected_sector_time']
+		df.groupby(['driver_number', 'sector', 'stint_num'])['fuel_corrected_sector_time']
 		  .transform('min')
 	)
 	
-	# Normalise lap times by subtracting the fastest sector time
+	# Normalise lap times by subtracting the fastest sector time within the same stint
 	df['normalised_sector_time'] = (
 		df['fuel_corrected_sector_time'] - df['fastest_sector_time']
 	)
@@ -186,6 +186,58 @@ def get_tyre_deg_per_driver(df):
 
 	return driver_tyre_coefficients
 
+import pandas as pd
+
+def calculate_base_sector_times(race_df):
+    # Unique drivers, sectors, and tyre types
+    drivers = race_df["driver_number"].unique()
+    sectors = race_df["sector"].unique()
+    tyre_types = [1, 2, 3]  # Soft, Medium, Hard
+    
+    # Step 1: Calculate base sector times per driver, sector, and tyre type
+    driver_sector_tyre_times = {
+        driver: {
+            sector: {
+                tyre: race_df[
+                    (race_df["driver_number"] == driver) &
+                    (race_df["sector"] == sector) &
+                    (race_df["tyre_type"] == tyre)
+                ]["fuel_corrected_sector_time"].min()
+                for tyre in tyre_types
+            }
+            for sector in sectors
+        }
+        for driver in drivers
+    }
+    
+    # Step 2: Calculate global averages for each sector and tyre type
+    global_sector_tyre_times = {
+        sector: {
+            tyre: race_df[
+                (race_df["sector"] == sector) &
+                (race_df["tyre_type"] == tyre)
+            ]["fuel_corrected_sector_time"].min()
+            for tyre in tyre_types
+        }
+        for sector in sectors
+    }
+    
+    # Step 3: Fill missing tyre types for each driver with global averages
+    base_sector_times = {}
+    for driver in drivers:
+        base_sector_times[driver] = {}
+        for sector in sectors:
+            base_sector_times[driver][sector] = {}
+            for tyre in tyre_types:
+                # Use the driver's own time if available; otherwise, fall back to global average
+                driver_time = driver_sector_tyre_times[driver][sector][tyre]
+                if pd.isna(driver_time):  # Check for NaN (missing data)
+                    base_sector_times[driver][sector][tyre] = global_sector_tyre_times[sector][tyre]
+                else:
+                    base_sector_times[driver][sector][tyre] = driver_time
+    
+    return base_sector_times
+
 
 def setup_race_data(race_df):
 	# Extract tyre degradation curves
@@ -200,13 +252,7 @@ def setup_race_data(race_df):
 
 	drivers = race_df["driver_number"].unique()
 
-	base_sector_times = {
-		driver: {
-			sector: race_df[(race_df["driver_number"] == driver) & (race_df["sector"] == sector)]["fuel_corrected_sector_time"].min()
-			for sector in race_df["sector"].unique()
-		}
-		for driver in drivers
-	}
+	base_sector_times = calculate_base_sector_times(race_df)
 
 	driver_names = {
 		driver: race_df[race_df["driver_number"] == driver]["driver_name"].iloc[0]
