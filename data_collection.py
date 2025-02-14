@@ -10,7 +10,7 @@ import numpy as np
 import os
 import math
 
-os.remove('f1_data_V2.db')
+os.remove('f1_data_2023.db')
 
 # Initialize logging
 logging.basicConfig(level=logging.WARNING)
@@ -25,19 +25,6 @@ db_engine, db_session = init_db()
 ff1.Cache.enable_cache(r'C:\Users\mcdon\OneDrive - University of Leeds\Desktop\individual-project-BenMcD23\cache')
 
 
-
-def assign_stint_numbers(df):
-	# Assign stint numbers to laps based on pit stops for each driver
-	df['stint'] = np.nan
-	for driver in df['DriverNumber'].unique():
-		driver_data = df[df['DriverNumber'] == driver]
-		stint_number = 1
-		for i in driver_data.index:
-			if driver_data.loc[i, 'pit'] and i != driver_data.index[0]:
-				stint_number += 1
-			df.loc[i, 'stint'] = stint_number
-	df['stint'] = df['stint'].astype(int)
-	return df
 
 
 def add_stint_laps_column(df):
@@ -143,7 +130,7 @@ def get_weather_for_lap(lap_row, weather_data):
 
 # Main Processing Loop
 start_time = time.time()
-years = range(2019, 2025)
+years = range(2023, 2024)
 
 tyre_mapping = {'SOFT': 1, 'MEDIUM': 2, 'HARD': 3, 'INTERMEDIATE': 4, 'WET': 5}
 
@@ -163,7 +150,8 @@ for year in years:
 	for _, event in schedule.iterrows():
 
 		currentRoundNum = event['RoundNumber']
-
+		if currentRoundNum != 4:
+			continue
 		circuit = db_session.query(Circuit).filter_by(circuit_name=event['Location']).first()
 		if not circuit:
 			circuit = Circuit(circuit_name=event['Location'])
@@ -355,7 +343,7 @@ for year in years:
 								position=lap.Position,
 								tyre_type=lap.tyre,
 								tyre_laps=lap.TyreLife,
-								pit=lap.pit,
+								pit=True if not pd.isna(lap.PitOutTime) else False,
 								track_status=lap.TrackStatus,
 								rainfall=lap.Rainfall
 							)
@@ -407,6 +395,8 @@ for year in years:
 			except Exception as e:
 
 				print(f"Error processing {session_name} for {year} Round {currentRoundNum}: {e}")
+		db_session.commit()
+
 
 db_session.commit()
 

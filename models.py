@@ -130,7 +130,7 @@ class PitStop(Base):
 	lap = relationship("Lap", back_populates="pit_stop")
 
 def init_db():
-	engine = create_engine('sqlite:///f1_data_V2.db')
+	engine = create_engine('sqlite:///f1_data_2023.db')
 	Session = sessionmaker(bind=engine)
 	Base.metadata.create_all(engine)
 	return engine, Session()
