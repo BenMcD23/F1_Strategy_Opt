@@ -74,7 +74,7 @@ class Lap(Base):
 	lap_num = Column(Integer, nullable=False)
 	stint_num = Column(Integer, nullable=True)
 	stint_lap = Column(Integer, nullable=True)
-	lap_time = Column(Float, nullable=False)
+	lap_time = Column(Float, nullable=True)
 	s1_time = Column(Float, nullable=True)
 	s2_time = Column(Float, nullable=True)
 	s3_time = Column(Float, nullable=True)
@@ -116,7 +116,6 @@ class TeamCircuitStats(Base):
 	circuit_id = Column(Integer, ForeignKey('circuits.circuit_id'), nullable=False)
 	team_id = Column(Integer, ForeignKey('teams.team_id'), nullable=False)
 	avg_pit_time = Column(Float, nullable=False)
-	quali_to_race_percent_diff = Column(Float, nullable=False)
 
 	circuit = relationship("Circuit", back_populates="team_circuit_stats")
 	team = relationship("Team", back_populates="team_circuit_stats")
@@ -130,7 +129,7 @@ class PitStop(Base):
 	lap = relationship("Lap", back_populates="pit_stop")
 
 def init_db():
-	engine = create_engine('sqlite:///f1_data_2023.db')
+	engine = create_engine('sqlite:///f1_data_V3.db')
 	Session = sessionmaker(bind=engine)
 	Base.metadata.create_all(engine)
 	return engine, Session()

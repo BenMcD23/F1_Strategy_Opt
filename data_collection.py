@@ -10,7 +10,7 @@ import numpy as np
 import os
 import math
 
-os.remove('f1_data_2023.db')
+os.remove('f1_data_V3.db')
 
 # Initialize logging
 logging.basicConfig(level=logging.WARNING)
@@ -40,17 +40,29 @@ def add_stint_laps_column(df):
 def add_circuit_stats(df, fastest_laps_quali, circuit_id, db_session):
 	# Calculate Pitstop Time
 	df['PitstopTime'] = (df['PitOutTime'] - df['PitInTime']).dt.total_seconds()
-	
+
 	# Shift PitOutTime column by 1 lap to align with the previous lap
 	df['NextPitOutTime'] = df['PitOutTime'].shift(-1)
 	
 	# Filter rows where PitInTime is not null and the next row has PitOutTime
 	valid_pits = df[df['PitInTime'].notna() & df['NextPitOutTime'].notna()].copy()
 	valid_pits['PitstopTime'] = (valid_pits['NextPitOutTime'] - valid_pits['PitInTime']).dt.total_seconds()
-	
+
+	# Done like this as had an issue with baku 2023 where alfa had a negative pit time 
+	valid_pits = valid_pits[valid_pits['PitstopTime'] >= 0]
+
 	# Calculate average pitstop time for each team
 	average_pitstop_by_team = valid_pits.groupby('Team')['PitstopTime'].mean().to_dict()
+
+	# Calculate the overall average pitstop time across all teams
+	overall_average_pitstop = valid_pits['PitstopTime'].mean()
 	
+	# Handle teams with no valid pitstop times (e.g., all negative or no data)
+	for team in df['Team'].unique():
+		if team not in average_pitstop_by_team:
+			average_pitstop_by_team[team] = overall_average_pitstop
+
+
 	# Calculate percentage difference from qualifying to race times
 	quali_race_diff = {}
 	team_differences = {}
@@ -85,31 +97,26 @@ def add_circuit_stats(df, fastest_laps_quali, circuit_id, db_session):
 
 	for team, avg_pitstop_time in average_pitstop_by_team.items():
 		team_database = db_session.query(Team).filter_by(team_name=team).first()
-		if team in percent_diff:
-			quali_to_race_diff = percent_diff[team]
 
-			# Check if the stats for this circuit and team already exist
-			existing_stats = db_session.query(TeamCircuitStats).filter_by(
-				circuit_id=circuit_id, team_id=team_database.team_id
-			).first()
+		# Check if the stats for this circuit and team already exist
+		existing_stats = db_session.query(TeamCircuitStats).filter_by(
+			circuit_id=circuit_id, team_id=team_database.team_id
+		).first()
 
-			if existing_stats:
-				# If the stats exist, average the new and old values
-				new_pit_time = (existing_stats.avg_pit_time + avg_pitstop_time) / 2
-				new_quali_to_race_diff = (existing_stats.quali_to_race_percent_diff + quali_to_race_diff) / 2
+		if existing_stats:
+			# If the stats exist, average the new and old values
+			new_pit_time = (existing_stats.avg_pit_time + avg_pitstop_time) / 2
 
-				# Update the existing entry
-				existing_stats.avg_pit_time = new_pit_time
-				existing_stats.quali_to_race_percent_diff = new_quali_to_race_diff
-			else:
-				# If the stats don't exist, create a new entry
-				new_stats = TeamCircuitStats(
-					circuit_id=circuit_id,
-					team_id=team_database.team_id,
-					avg_pit_time=avg_pitstop_time,
-					quali_to_race_percent_diff=quali_to_race_diff
-				)
-				db_session.add(new_stats)
+			# Update the existing entry
+			existing_stats.avg_pit_time = new_pit_time
+		else:
+			# If the stats don't exist, create a new entry
+			new_stats = TeamCircuitStats(
+				circuit_id=circuit_id,
+				team_id=team_database.team_id,
+				avg_pit_time=avg_pitstop_time,
+			)
+			db_session.add(new_stats)
 
 	# flush the changes to the database
 	db_session.flush()
@@ -130,7 +137,7 @@ def get_weather_for_lap(lap_row, weather_data):
 
 # Main Processing Loop
 start_time = time.time()
-years = range(2023, 2024)
+years = range(2022, 2025)
 
 tyre_mapping = {'SOFT': 1, 'MEDIUM': 2, 'HARD': 3, 'INTERMEDIATE': 4, 'WET': 5}
 
@@ -150,8 +157,7 @@ for year in years:
 	for _, event in schedule.iterrows():
 
 		currentRoundNum = event['RoundNumber']
-		if currentRoundNum != 4:
-			continue
+
 		circuit = db_session.query(Circuit).filter_by(circuit_name=event['Location']).first()
 		if not circuit:
 			circuit = Circuit(circuit_name=event['Location'])
@@ -321,43 +327,41 @@ for year in years:
 				if session_name == "Race":
 
 					for lap in laps_df.itertuples():
-						# Make sure laptime is not NaN
-						if not pd.isna(lap.LapTime):
+						
+						# Check if driver exists
+						driver = db_session.query(Driver).filter_by(driver_id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
+						if not driver:
+							print("Driver not found in session drivers map.")
 
-							# Check if driver exists
-							driver = db_session.query(Driver).filter_by(driver_id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
-							if not driver:
-								print("Driver not found in session drivers map.")
+						# Create lap record
+						lap_record = Lap(
+							session=session,
+							driver=driver,
+							lap_num=int(lap.LapNumber),
+							stint_num=int(lap.Stint),
+							stint_lap=int(lap.stint_laps) if not pd.isna(lap.stint_laps) else None,
+							lap_time=float(lap.LapTimeSeconds) if not pd.isna(lap.LapTimeSeconds) else None,
+							s1_time=float(lap.Sector1TimeSecs) if not pd.isna(lap.Sector1TimeSecs) else None,
+							s2_time=float(lap.Sector2TimeSecs) if not pd.isna(lap.Sector2TimeSecs) else None,
+							s3_time=float(lap.Sector3TimeSecs) if not pd.isna(lap.Sector3TimeSecs) else None,
+							position=lap.Position,
+							tyre_type=lap.tyre,
+							tyre_laps=lap.TyreLife,
+							pit=True if not pd.isna(lap.PitOutTime) else False,
+							track_status=lap.TrackStatus,
+							rainfall=lap.Rainfall
+						)
+						db_session.add(lap_record)
 
-							# Create lap record
-							lap_record = Lap(
-								session=session,
-								driver=driver,
-								lap_num=int(lap.LapNumber),
-								stint_num=int(lap.Stint),
-								stint_lap=int(lap.stint_laps) if not pd.isna(lap.stint_laps) else None,
-								lap_time=float(lap.LapTimeSeconds) if not pd.isna(lap.LapTimeSeconds) else None,
-								s1_time=float(lap.Sector1TimeSecs) if not pd.isna(lap.Sector1TimeSecs) else None,
-								s2_time=float(lap.Sector2TimeSecs) if not pd.isna(lap.Sector2TimeSecs) else None,
-								s3_time=float(lap.Sector3TimeSecs) if not pd.isna(lap.Sector3TimeSecs) else None,
-								position=lap.Position,
-								tyre_type=lap.tyre,
-								tyre_laps=lap.TyreLife,
-								pit=True if not pd.isna(lap.PitOutTime) else False,
-								track_status=lap.TrackStatus,
-								rainfall=lap.Rainfall
+						db_session.flush()
+
+						# if we got a pit on this lap
+						if not pd.isna(lap.PitTime):
+							pit_record = PitStop(
+								lap_id=lap_record.lap_id,
+								pit_time=float(lap.PitTime)
 							)
-							db_session.add(lap_record)
-
-							db_session.flush()
-
-							# if we got a pit on this lap
-							if not pd.isna(lap.PitTime):
-								pit_record = PitStop(
-									lap_id=lap_record.lap_id,
-									pit_time=float(lap.PitTime)
-								)
-								db_session.add(pit_record)
+							db_session.add(pit_record)
 
 					db_session.flush()
 
