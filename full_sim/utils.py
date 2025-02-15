@@ -1,7 +1,6 @@
 from scipy.optimize import minimize
 import numpy as np
-
-
+import pandas as pd
 
 # --------------------------------------
 # Mainly for calculating tyre deg
@@ -59,13 +58,13 @@ def remove_laps_outside_percent(df, percentage=5):
 
 
 def normalise_lap_times_by_sector(df):
-	# Group by driver, sector, and stint, then calculate the fastest lap time for each group
+	# Group by driver, sector, then calculate the fastest lap time for each group
 	df['fastest_sector_time'] = (
-		df.groupby(['driver_number', 'sector', 'stint_num'])['fuel_corrected_sector_time']
+		df.groupby(['driver_number', 'sector'])['fuel_corrected_sector_time']
 		  .transform('min')
 	)
 	
-	# Normalise lap times by subtracting the fastest sector time within the same stint
+	# Normalise lap times by subtracting the fastest sector time
 	df['normalised_sector_time'] = (
 		df['fuel_corrected_sector_time'] - df['fastest_sector_time']
 	)
@@ -186,115 +185,26 @@ def get_tyre_deg_per_driver(df):
 
 	return driver_tyre_coefficients
 
-import pandas as pd
 
 def calculate_base_sector_times(race_df):
-	# Unique drivers, sectors, and tyre types
-	drivers = race_df["driver_number"].unique()
-	sectors = race_df["sector"].unique()
-	tyre_types = [1, 2, 3]  # Soft, Medium, Hard
-	
-	# Step 1: Calculate base sector times per driver, sector, and tyre type
-	driver_sector_tyre_times = {
-		driver: {
-			sector: {
-				tyre: race_df[
-					(race_df["driver_number"] == driver) &
-					(race_df["sector"] == sector) &
-					(race_df["tyre_type"] == tyre)
-				]["fuel_corrected_sector_time"].min()
-				for tyre in tyre_types
-			}
-			for sector in sectors
-		}
-		for driver in drivers
-	}
-	
-	# Step 2: Calculate global averages for each sector and tyre type
-	global_sector_tyre_times = {
-		sector: {
-			tyre: race_df[
-				(race_df["sector"] == sector) &
-				(race_df["tyre_type"] == tyre)
-			]["fuel_corrected_sector_time"].min()
-			for tyre in tyre_types
-		}
-		for sector in sectors
-	}
-	
-	# Step 3: Fill missing tyre types for each driver with global averages
-	base_sector_times = {}
-	for driver in drivers:
-		base_sector_times[driver] = {}
-		for sector in sectors:
-			base_sector_times[driver][sector] = {}
-			for tyre in tyre_types:
-				# Use the driver's own time if available; otherwise, fall back to global average
-				driver_time = driver_sector_tyre_times[driver][sector][tyre]
-				if pd.isna(driver_time):  # Check for NaN (missing data)
-					base_sector_times[driver][sector][tyre] = global_sector_tyre_times[sector][tyre]
-				else:
-					base_sector_times[driver][sector][tyre] = driver_time
-	
-	return base_sector_times
+    # Unique drivers and sectors
+    drivers = race_df["driver_number"].unique()
+    sectors = race_df["sector"].unique()
+    
+    # Step 1: Calculate the fastest sector time for each driver and sector
+    base_sector_times = {
+        driver: {
+            sector: race_df[
+                (race_df["driver_number"] == driver) &
+                (race_df["sector"] == sector)
+            ]["fuel_corrected_sector_time"].min()
+            for sector in sectors
+        }
+        for driver in drivers
+    }
+    
+    return base_sector_times
 
-
-def setup_race_data(race_df):
-	driver_strategies = extract_driver_strategies(race_df)
-	
-	# Extract tyre degradation curves
-	driver_tyre_coefficients = get_tyre_deg_per_driver(race_df)
-	
-	# Precompute driver strategies
-
-	# Correct fuel effects in the race data
-	max_laps = race_df["lap_num"].max()
-	race_df = correct_fuel_effect(race_df)
-
-	drivers = race_df["driver_number"].unique()
-
-	base_sector_times = calculate_base_sector_times(race_df)
-
-	driver_names = {
-		driver: race_df[race_df["driver_number"] == driver]["driver_name"].iloc[0]
-		for driver in drivers
-	}
-
-	# Precompute fuel corrections
-	max_fuel_kg = 110
-	fuel_effect_per_kg = 0.03
-	fuel_corrections = {
-		lap: (max_fuel_kg - (lap - 1) * (max_fuel_kg / max_laps)) * fuel_effect_per_kg
-		for lap in range(1, max_laps + 1)
-	}
-
-	# Extract initial positions (starting grid positions) for each driver
-	initial_positions = {}
-	for driver in drivers:
-		# Find the first occurrence of the driver's starting position
-		starting_position = race_df[(race_df["driver_number"] == driver) & (race_df["starting_position"].notna())]["starting_position"].iloc[0]
-		initial_positions[driver] = int(starting_position)  # Convert to integer
-	
-	filtered_df = race_df[race_df["track_status"] != 1]
-	
-	# Group by lap_num and convert each group to a list of dictionaries
-	slow_laps = {}
-	for lap_num, group in filtered_df.groupby("lap_num"):
-		slow_laps[lap_num] = group.to_dict(orient="records")
-	
-
-	return {
-		"driver_tyre_coefficients": driver_tyre_coefficients,
-		"driver_strategies": driver_strategies,
-		"race_df": race_df,
-		"max_laps": max_laps,
-		"drivers": drivers,
-		"driver_names": driver_names,
-		"initial_positions": initial_positions,
-		"base_sector_times": base_sector_times,
-		"fuel_corrections": fuel_corrections,
-		"slow_laps": slow_laps
-	}
 
 
 
