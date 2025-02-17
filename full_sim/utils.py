@@ -1,6 +1,8 @@
 from scipy.optimize import minimize
 import numpy as np
 import pandas as pd
+from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, TeamCircuitStats, PitStop
+from sqlalchemy import func
 
 # --------------------------------------
 # Mainly for calculating tyre deg
@@ -36,6 +38,7 @@ def assign_stint_numbers(df):
 	df["stint"] = df["stint"].astype(int)
 	return df
 
+
 def remove_laps_outside_percent(df, percentage=5):
 	# Group by driver and apply the filtering logic to each driver"s laps
 	def _filter_driver_sector_laps(driver_sector_df):
@@ -58,19 +61,11 @@ def remove_laps_outside_percent(df, percentage=5):
 
 
 def normalise_lap_times_by_sector(df):
-	# Group by driver, sector, then calculate the fastest lap time for each group
-	df['fastest_sector_time'] = (
-		df.groupby(['driver_number', 'sector'])['fuel_corrected_sector_time']
-		  .transform('min')
-	)
-	
 	# Normalise lap times by subtracting the fastest sector time
 	df['normalised_sector_time'] = (
-		df['fuel_corrected_sector_time'] - df['fastest_sector_time']
+		df['fuel_corrected_sector_time'] - df['base_sector_time']
 	)
-	
-	# Drop the fastest_sector_time column as it's no longer needed
-	df = df.drop(columns=['fastest_sector_time'])
+
 	
 	return df
 # --------------------------------------
@@ -86,9 +81,9 @@ def get_tyre_deg_per_driver(df):
 	
 	# Define minimum laps required for each tyre type
 	min_laps_by_tyre = {
-		1: 2,  # Soft
-		2: 4,  # Med
-		3: 6   # Hard
+		1: 0,  # Soft
+		2: 0,  # Med
+		3: 0   # Hard
 	}
 
 	# Dictionary to store tyre coefficients for each driver
@@ -183,26 +178,57 @@ def get_tyre_deg_per_driver(df):
 				if sector not in driver_coeffs[tyre] and tyre in global_tyre_coefficients and sector in global_tyre_coefficients[tyre]:
 					driver_coeffs[tyre][sector] = global_tyre_coefficients[tyre][sector]
 
+	# {driverNum: {tyreType: {sector1Deg: [], sector2Deg: [], sector3Deg: []}}}
 	return driver_tyre_coefficients
 
 
-def calculate_base_sector_times(race_df):
-    # Unique drivers and sectors
-    drivers = race_df["driver_number"].unique()
-    sectors = race_df["sector"].unique()
-    
-    # Step 1: Calculate the fastest sector time for each driver and sector
+def get_base_sector_times(year, circuit, db_session):
+    # Query to find the qualifying session
+    quali_session = (
+        db_session.query(Session)
+        .join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
+        .join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
+        .filter(
+            RacingWeekend.year == year,
+            Circuit.circuit_name == circuit,
+            Session.session_type == "Qualifying"
+        )
+        .first()
+    )
+
+    if not quali_session:
+        raise ValueError("No qualifying session found for the given year and circuit.")
+
+    # Query to find the minimum sector times for each driver and sector
+    min_sector_times = (
+        db_session.query(
+            Lap.driver_id,
+            Driver.driver_num,
+            func.min(Lap.s1_time).label("min_s1"),
+            func.min(Lap.s2_time).label("min_s2"),
+            func.min(Lap.s3_time).label("min_s3")
+        )
+        .join(Driver, Lap.driver_id == Driver.driver_id)
+        .filter(
+            Lap.session_id == quali_session.session_id,
+            Lap.s1_time.isnot(None),  # Ensure sector times are not null
+            Lap.s2_time.isnot(None),
+            Lap.s3_time.isnot(None)
+        )
+        .group_by(Lap.driver_id, Driver.driver_num)
+        .all()
+    )
+
+    # Convert results into a dictionary for easier access
     base_sector_times = {
-        driver: {
-            sector: race_df[
-                (race_df["driver_number"] == driver) &
-                (race_df["sector"] == sector)
-            ]["fuel_corrected_sector_time"].min()
-            for sector in sectors
+        row.driver_num: {
+            1: row.min_s1,
+            2: row.min_s2,
+            3: row.min_s3,
         }
-        for driver in drivers
+        for row in min_sector_times
     }
-    
+
     return base_sector_times
 
 
