@@ -1,7 +1,7 @@
 from scipy.optimize import minimize
 import numpy as np
 import pandas as pd
-from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, TeamCircuitStats, PitStop
+from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, PitStop
 from sqlalchemy import func
 
 # --------------------------------------
@@ -183,53 +183,53 @@ def get_tyre_deg_per_driver(df):
 
 
 def get_base_sector_times(year, circuit, db_session):
-    # Query to find the qualifying session
-    quali_session = (
-        db_session.query(Session)
-        .join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
-        .join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
-        .filter(
-            RacingWeekend.year == year,
-            Circuit.circuit_name == circuit,
-            Session.session_type == "Qualifying"
-        )
-        .first()
-    )
+	# Query to find the qualifying session
+	quali_session = (
+		db_session.query(Session)
+		.join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
+		.join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
+		.filter(
+			RacingWeekend.year == year,
+			Circuit.circuit_name == circuit,
+			Session.session_type == "Qualifying"
+		)
+		.first()
+	)
 
-    if not quali_session:
-        raise ValueError("No qualifying session found for the given year and circuit.")
+	if not quali_session:
+		raise ValueError("No qualifying session found for the given year and circuit.")
 
-    # Query to find the minimum sector times for each driver and sector
-    min_sector_times = (
-        db_session.query(
-            Lap.driver_id,
-            Driver.driver_num,
-            func.min(Lap.s1_time).label("min_s1"),
-            func.min(Lap.s2_time).label("min_s2"),
-            func.min(Lap.s3_time).label("min_s3")
-        )
-        .join(Driver, Lap.driver_id == Driver.driver_id)
-        .filter(
-            Lap.session_id == quali_session.session_id,
-            Lap.s1_time.isnot(None),  # Ensure sector times are not null
-            Lap.s2_time.isnot(None),
-            Lap.s3_time.isnot(None)
-        )
-        .group_by(Lap.driver_id, Driver.driver_num)
-        .all()
-    )
+	# Query to find the minimum sector times for each driver and sector
+	min_sector_times = (
+		db_session.query(
+			Lap.driver_id,
+			Driver.driver_num,
+			func.min(Lap.s1_time).label("min_s1"),
+			func.min(Lap.s2_time).label("min_s2"),
+			func.min(Lap.s3_time).label("min_s3")
+		)
+		.join(Driver, Lap.driver_id == Driver.driver_id)
+		.filter(
+			Lap.session_id == quali_session.session_id,
+			Lap.s1_time.isnot(None),  # Ensure sector times are not null
+			Lap.s2_time.isnot(None),
+			Lap.s3_time.isnot(None)
+		)
+		.group_by(Lap.driver_id, Driver.driver_num)
+		.all()
+	)
 
-    # Convert results into a dictionary for easier access
-    base_sector_times = {
-        row.driver_num: {
-            1: row.min_s1,
-            2: row.min_s2,
-            3: row.min_s3,
-        }
-        for row in min_sector_times
-    }
+	# Convert results into a dictionary for easier access
+	base_sector_times = {
+		row.driver_num: {
+			1: row.min_s1,
+			2: row.min_s2,
+			3: row.min_s3,
+		}
+		for row in min_sector_times
+	}
 
-    return base_sector_times
+	return base_sector_times
 
 
 
@@ -260,3 +260,147 @@ def extract_driver_strategies(df):
 		driver_strategies[driver] = pits_dict
 	
 	return driver_strategies
+
+
+def get_race_session(year, circuit, db_session):
+	race_session = (db_session.query(Session)
+				.join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
+				.join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
+				.filter(
+					RacingWeekend.year == year,
+					Circuit.circuit_name == circuit,
+					Session.session_type == "Race"
+				)
+				.first())
+	
+	return race_session
+
+
+# calcualtes on average how much slower safety car laps are
+def get_safety_car_penalty(year, circuit_name, db_session):
+	# Step 1: Get the circuit ID for the given circuit name
+	circuit = db_session.query(Circuit).filter_by(circuit_name=circuit_name).first()
+	if not circuit:
+		raise ValueError(f"Circuit '{circuit_name}' not found in the database.")
+	circuit_id = circuit.circuit_id
+
+	# Step 2: Query all sessions for the given circuit and years
+	sessions = (
+		db_session.query(Session)
+		.join(RacingWeekend)
+		.filter(
+			RacingWeekend.circuit_id == circuit_id,
+			RacingWeekend.year < year
+		)
+		.all()
+	)
+
+	if not sessions:
+		raise ValueError(f"No sessions found for circuit '{circuit_name}' before year {year}.")
+
+	# Step 3: Collect lap times for safety car and normal laps
+	safety_car_lap_times = []
+	normal_lap_times = []
+
+	for session in sessions:
+		laps = db_session.query(Lap).filter_by(session_id=session.session_id).all()
+		for lap in laps:
+			if lap.lap_time is None:
+				continue  # Skip laps with missing lap times
+			if lap.track_status == 4:  # Safety car lap
+				safety_car_lap_times.append(lap.lap_time)
+			else:  # Normal lap
+				normal_lap_times.append(lap.lap_time)
+
+	# Step 4: Calculate average lap times
+	avg_safety_car_lap_time = sum(safety_car_lap_times) / len(safety_car_lap_times) if safety_car_lap_times else None
+	avg_normal_lap_time = sum(normal_lap_times) / len(normal_lap_times) if normal_lap_times else None
+
+	if avg_safety_car_lap_time is None or avg_normal_lap_time is None:
+		raise ValueError("Insufficient data to calculate safety car penalty.")
+
+	# Step 5: Calculate the penalty
+	penalty_percentage = ((avg_safety_car_lap_time - avg_normal_lap_time) / avg_normal_lap_time) + 1
+
+	return penalty_percentage
+
+
+def get_driver_pit_time(year, circuit_name, db_session):
+	# Step 1: Get the circuit ID for the given circuit name
+	circuit = db_session.query(Circuit).filter_by(circuit_name=circuit_name).first()
+	if not circuit:
+		raise ValueError(f"Circuit '{circuit_name}' not found in the database.")
+	circuit_id = circuit.circuit_id
+
+	# Step 2: Query all sessions for the given circuit and years before the specified year
+	past_sessions = (
+		db_session.query(Session)
+		.join(RacingWeekend)
+		.filter(
+			RacingWeekend.circuit_id == circuit_id,
+			RacingWeekend.year < year
+		)
+		.all()
+	)
+
+	if not past_sessions:
+		raise ValueError(f"No sessions found for circuit '{circuit_name}' before year {year}.")
+
+	# Step 3: Collect pit stop times for each team
+	team_pit_times = {}  # Dictionary to store lists of pit stop times for each team
+
+	for session in past_sessions:
+		# Get all DriverTeamSession entries for this session
+		driver_team_sessions = db_session.query(DriverTeamSession).filter_by(session_id=session.session_id).all()
+
+		for dts in driver_team_sessions:
+			team_id = dts.team_id
+			laps = db_session.query(Lap).filter_by(session_id=session.session_id, driver_id=dts.driver_id).all()
+
+			for lap in laps:
+
+				for pit_stop in lap.pit_stop:
+					pit_time = pit_stop.pit_time
+
+					# Skip laps with missing pit times
+					if pit_time is None:
+						continue
+
+					# Add pit time to the team's list
+					if team_id not in team_pit_times:
+						team_pit_times[team_id] = []
+					team_pit_times[team_id].append(pit_time)
+
+	# Step 4: Calculate average pit stop times for each team
+	team_avg_pit_times = {}
+	
+	for team_id, pit_times in team_pit_times.items():
+		avg_pit_time = round(sum(pit_times) / len(pit_times), 3)
+		team_avg_pit_times[team_id] = avg_pit_time
+
+	# Step 5: Get the current year's session for the circuit
+	current_session = (
+		db_session.query(Session)
+		.join(RacingWeekend)
+		.filter(
+			RacingWeekend.circuit_id == circuit_id,
+			RacingWeekend.year == year
+		)
+		.first()
+	)
+
+	if not current_session:
+		raise ValueError(f"No session found for circuit '{circuit_name}' in year {year}.")
+
+	# Step 6: Map teams to drivers for the current session
+	driver_pit_times = {}
+	current_driver_team_sessions = db_session.query(DriverTeamSession).filter_by(session_id=current_session.session_id).all()
+
+	for dts in current_driver_team_sessions:
+		team_id = dts.team_id
+		driver = db_session.query(Driver).filter_by(driver_id=dts.driver_id).first()
+
+		if driver and team_id in team_avg_pit_times:
+			driver_pit_times[driver.driver_num] = team_avg_pit_times[team_id]
+
+	return driver_pit_times
