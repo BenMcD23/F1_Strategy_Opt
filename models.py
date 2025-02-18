@@ -17,8 +17,6 @@ class Circuit(Base):
 	circuit_id = Column(Integer, primary_key=True, autoincrement=True)
 	circuit_name = Column(Text, nullable=False)
 
-	team_circuit_stats = relationship("TeamCircuitStats", back_populates="circuit")
-
 class RacingWeekend(Base):
 	__tablename__ = 'racing_weekends'
 	racing_weekend_id = Column(Integer, primary_key=True, autoincrement=True)
@@ -108,17 +106,6 @@ class Team(Base):
 	TeamColor = Column(Text, nullable=False)
 
 	driver_team_sessions = relationship("DriverTeamSession", back_populates="team")
-	team_circuit_stats = relationship("TeamCircuitStats", back_populates="team")
-
-class TeamCircuitStats(Base):
-	__tablename__ = 'team_circuit_stats'
-	tcs_id = Column(Integer, primary_key=True, autoincrement=True)
-	circuit_id = Column(Integer, ForeignKey('circuits.circuit_id'), nullable=False)
-	team_id = Column(Integer, ForeignKey('teams.team_id'), nullable=False)
-	avg_pit_time = Column(Float, nullable=False)
-
-	circuit = relationship("Circuit", back_populates="team_circuit_stats")
-	team = relationship("Team", back_populates="team_circuit_stats")
 
 class PitStop(Base):
 	__tablename__ = 'pit_stops'
@@ -129,7 +116,7 @@ class PitStop(Base):
 	lap = relationship("Lap", back_populates="pit_stop")
 
 def init_db():
-	engine = create_engine('sqlite:///f1_data_V3.db')
+	engine = create_engine('sqlite:///f1_data_V4.db')
 	Session = sessionmaker(bind=engine)
 	Base.metadata.create_all(engine)
 	return engine, Session()

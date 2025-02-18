@@ -5,12 +5,12 @@ import logging
 import pandas as pd
 from datetime import datetime
 import time
-from models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, TeamCircuitStats, PitStop
+from models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, PitStop
 import numpy as np
 import os
 import math
 
-os.remove('f1_data_V3.db')
+os.remove('f1_data_V4.db')
 
 # Initialize logging
 logging.basicConfig(level=logging.WARNING)
@@ -24,9 +24,6 @@ db_engine, db_session = init_db()
 # FastF1 cache
 ff1.Cache.enable_cache(r'C:\Users\mcdon\OneDrive - University of Leeds\Desktop\individual-project-BenMcD23\cache')
 
-
-
-
 def add_stint_laps_column(df):
 	if 'DriverNumber' not in df.columns or 'Stint' not in df.columns or 'LapNumber' not in df.columns:
 		raise ValueError("The DataFrame must contain 'DriverNumber', 'Stint', and 'LapNumber' columns.")
@@ -35,91 +32,6 @@ def add_stint_laps_column(df):
 	df['stint_laps'] = df.groupby(['DriverNumber', 'Stint']).cumcount() + 1
 
 	return df
-
-
-def add_circuit_stats(df, fastest_laps_quali, circuit_id, db_session):
-	# Calculate Pitstop Time
-	df['PitstopTime'] = (df['PitOutTime'] - df['PitInTime']).dt.total_seconds()
-
-	# Shift PitOutTime column by 1 lap to align with the previous lap
-	df['NextPitOutTime'] = df['PitOutTime'].shift(-1)
-	
-	# Filter rows where PitInTime is not null and the next row has PitOutTime
-	valid_pits = df[df['PitInTime'].notna() & df['NextPitOutTime'].notna()].copy()
-	valid_pits['PitstopTime'] = (valid_pits['NextPitOutTime'] - valid_pits['PitInTime']).dt.total_seconds()
-
-	# Done like this as had an issue with baku 2023 where alfa had a negative pit time 
-	valid_pits = valid_pits[valid_pits['PitstopTime'] >= 0]
-
-	# Calculate average pitstop time for each team
-	average_pitstop_by_team = valid_pits.groupby('Team')['PitstopTime'].mean().to_dict()
-
-	# Calculate the overall average pitstop time across all teams
-	overall_average_pitstop = valid_pits['PitstopTime'].mean()
-	
-	# Handle teams with no valid pitstop times (e.g., all negative or no data)
-	for team in df['Team'].unique():
-		if team not in average_pitstop_by_team:
-			average_pitstop_by_team[team] = overall_average_pitstop
-
-
-	# Calculate percentage difference from qualifying to race times
-	quali_race_diff = {}
-	team_differences = {}
-
-	# Map DriverNumber to Teams
-	driver_to_team = df[['DriverNumber', 'Team']].drop_duplicates().set_index('DriverNumber')['Team'].to_dict()
-	
-
-	# find fastest laps in race
-	fastest_laps_by_driver = (
-		df.groupby(['Team', 'DriverNumber'])['LapTimeSeconds']
-		.min()
-		.reset_index()
-	)
-
-	# Group by Team and calculate the average fastest lap time across the two drivers
-	fastest_laps_race = (
-		fastest_laps_by_driver.groupby('Team')['LapTimeSeconds']
-		.mean()
-		.to_dict()
-	)
-	
-	percent_diff = {}
-
-	# Iterate through the teams in the qualifying dictionary
-	for team, quali_time in fastest_laps_quali.items():
-		# Ensure the team is also in the race dictionary
-		if team in fastest_laps_race:
-			race_time = fastest_laps_race[team]
-			# Calculate the percentage difference
-			percent_diff[team] = ((race_time - quali_time) / quali_time) * 100
-
-	for team, avg_pitstop_time in average_pitstop_by_team.items():
-		team_database = db_session.query(Team).filter_by(team_name=team).first()
-
-		# Check if the stats for this circuit and team already exist
-		existing_stats = db_session.query(TeamCircuitStats).filter_by(
-			circuit_id=circuit_id, team_id=team_database.team_id
-		).first()
-
-		if existing_stats:
-			# If the stats exist, average the new and old values
-			new_pit_time = (existing_stats.avg_pit_time + avg_pitstop_time) / 2
-
-			# Update the existing entry
-			existing_stats.avg_pit_time = new_pit_time
-		else:
-			# If the stats don't exist, create a new entry
-			new_stats = TeamCircuitStats(
-				circuit_id=circuit_id,
-				team_id=team_database.team_id,
-				avg_pit_time=avg_pitstop_time,
-			)
-			db_session.add(new_stats)
-
-	# flush the changes to the database
-	db_session.flush()
 
 
 def convert_lap_time(lap_time):
@@ -205,7 +117,20 @@ for year in years:
 				team_drivers = results.groupby('TeamName')['FullName'].apply(list)
 
 				for team_name, drivers in team_drivers.items():
-					# print(drivers)
+					team_name_mapping = {
+						"Alfa Romeo": "Kick Sauber",
+						"AlphaTauri": "RB",
+						"Red Bull": "Red Bull Racing"
+					}
+					team_color_mapping = {
+						"Kick Sauber": "#00e700",
+						"RB": "#364aa9",
+						"Red Bull Racing": "#0600ef",
+					}
+
+					# Update the team name using the dictionary
+					team_name = team_name_mapping.get(team_name, team_name)
+
 					# Check if team exists
 					team = db_session.query(Team).filter_by(team_name=team_name).first()
 
@@ -217,9 +142,9 @@ for year in years:
 								session=sessionData,
 								exact_match=True  # Requires exact team name match
 							)
-						except ValueError:
+						except:
 							# Fallback if team name isn't recognized
-							team_color = '#000000'  # Default black
+							team_color = team_color_mapping.get(team_name, '#000000')  # Default black if not found
 
 						# Create new team with dynamic color
 						team = Team(
@@ -310,8 +235,6 @@ for year in years:
 					)
 
 				if session_name == "Race":
-					# add_tyre_deg(laps_df, CurrentSessionDrivers, session.session_id, db_session)
-					add_circuit_stats(laps_df, fastest_laps_quali, circuit.circuit_id, db_session)
 					laps_df = add_stint_laps_column(laps_df)
 
 				if laps_df['Rainfall'].any():  # Check if any lap had rainfall
@@ -327,7 +250,7 @@ for year in years:
 				if session_name == "Race":
 
 					for lap in laps_df.itertuples():
-						
+
 						# Check if driver exists
 						driver = db_session.query(Driver).filter_by(driver_id=CurrentSessionDrivers[int(lap.DriverNumber)]).first()
 						if not driver:
