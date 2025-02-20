@@ -142,12 +142,43 @@ class RaceDataframe:
 		# Handle NaN values in 'next_pit' by filling them with False
 		race_df["next_pit"] = race_df["next_pit"].fillna(False)
 
-		# Define the "overtaken" column
-		race_df["overtaken"] = (
-			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))  # Original condition
-			& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
+		# # Define the "overtaken" column
+		# race_df["overtaken"] = (
+		# 	((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))  # Original condition
+		# 	& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
+		# )
+
+		# Create target variable for overtaking model)
+		# Step 1: Detect position improvement on the next sector
+		race_df.loc[:, "next_position"] = race_df.groupby("driver_name")["position"].shift(-1)
+		race_df.loc[:, "position_improved"] = (
+			(race_df["next_position"] < race_df["position"]) |  # Position improved
+			(race_df["next_position"].isna())  # Handle NaN values
 		)
 
+		# Step 2: Identify the sector with the minimum gap for each driver and lap
+		race_df.loc[:, "min_gap_sector"] = race_df[race_df["position_improved"]].groupby(["driver_name", "lap_num"])["gap"].transform("idxmin")
+
+		# Step 3: Propagate the overtaken flag to the sector with the minimum gap
+		race_df.loc[:, "overtaken"] = False  # Initialize the overtake flag
+		for idx in race_df[race_df["position_improved"]].index:
+			driver = race_df.loc[idx, "driver_name"]
+			lap = race_df.loc[idx, "lap_num"]
+			
+			# Find the sector with the minimum gap for this driver and lap
+			min_gap_idx = race_df.loc[
+				(race_df["driver_name"] == driver) & 
+				(race_df["lap_num"] == lap) & 
+				(race_df["position_improved"]), "min_gap_sector"
+			].iloc[0]
+			
+			# Set the overtaken flag only for the sector with the minimum gap
+			if idx == min_gap_idx:
+				race_df.loc[idx, "overtaken"] = True
+
+		# Cleanup intermediate columns
+		race_df = race_df.drop(columns=["position_improved", "min_gap_sector"], errors="ignore")
+		
 		# Cleanup and final sorting
 		race_df = race_df.drop(columns=["front_cumulative_time", "front_tyre", "next_position"])
 		# race_df = race_df.sort_values(["lap_num", "sector", "position"]).reset_index(drop=True)
