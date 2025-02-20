@@ -28,7 +28,7 @@ class RaceSimulation:
 			self.race_data.driver_strategies[given_driver] = simulated_strategy
 
 		# Initialize drivers' data
-		self.drivers_data = self._initialize_drivers_data()
+		self.sim_data = self._initialize_drivers_data()
 
 		# Rolling pace tracking
 		self.driver_pace_per_sec = {
@@ -43,9 +43,9 @@ class RaceSimulation:
 		"""
 		Initialize the data structure for each driver.
 		"""
-		drivers_data = []
+		sim_data = []
 		for driver in self.race_data.drivers:
-			drivers_data.append({
+			sim_data.append({
 				"driver_number": driver,
 				"driver_name": self.race_data.driver_names[driver],
 				"pit_schedule": {key: value for key, value in self.race_data.driver_strategies[driver].items() if key != 1},
@@ -66,7 +66,7 @@ class RaceSimulation:
 				"drs_available": False,  # Initialize DRS availability as False
 				"retired": False,
 			})
-		return drivers_data
+		return sim_data
 
 	def simulate(self):
 		"""
@@ -75,15 +75,14 @@ class RaceSimulation:
 		for lap in range(1, self.race_data.max_laps + 1):
 			self._process_lap(lap)
 
-		print(f"Number of overtakes: {self.num_overtakes}")
-		return self.drivers_data
+		return self.sim_data
 
 	def _process_lap(self, lap):
 		"""
 		Process a lap, including itterating the lapnumber and handling retirements and safety cars
 		"""
 		# Increment lap and stint lap counters
-		for d in self.drivers_data:
+		for d in self.sim_data:
 			d["lap_num"] += 1
 			d["stint_lap"] += 1
 
@@ -106,15 +105,15 @@ class RaceSimulation:
 		# Move all drivers behind the retiring drivers up by 1 position
 		for driver in retiring_drivers:
 			retiring_position = next(
-				d["position"] for d in self.drivers_data if d["driver_number"] == driver
+				d["position"] for d in self.sim_data if d["driver_number"] == driver
 			)
 
-			for d in self.drivers_data:
+			for d in self.sim_data:
 				if d["position"] > retiring_position:
 					d["position"] -= 1
 
 		# Mark retiring drivers as retired
-		for d in self.drivers_data:
+		for d in self.sim_data:
 			if d["driver_number"] in retiring_drivers:
 				d["retired"] = True
 				d["position"] = 999
@@ -123,7 +122,7 @@ class RaceSimulation:
 		"""
 		Process a single sector for all drivers.
 		"""
-		for d in self.drivers_data:
+		for d in self.sim_data:
 			if d["retired"]:
 				continue
 
@@ -156,7 +155,7 @@ class RaceSimulation:
 				d["pit"] = False
 
 		# Re-sort drivers by cumulative time and update positions
-		active_drivers = [d for d in self.drivers_data if not d["retired"]]
+		active_drivers = [d for d in self.sim_data if not d["retired"]]
 		active_drivers.sort(key=lambda x: x["cumulative_time"])
 		for i, d in enumerate(active_drivers):
 			d["position"] = i + 1
@@ -166,7 +165,7 @@ class RaceSimulation:
 			return
 
 		# Handle overtakes
-		for d in self.drivers_data:
+		for d in self.sim_data:
 			if d["retired"]:
 				continue
 
@@ -197,7 +196,7 @@ class RaceSimulation:
 				d["gap"] = 0
 
 		# Predict overtakes
-		active_drivers = [d for d in self.drivers_data if not d["retired"]]
+		active_drivers = [d for d in self.sim_data if not d["retired"]]
 		
 		predicted_overtakes = self.overtake_model.handle_overtake_prediction(active_drivers)
 
@@ -224,7 +223,7 @@ class RaceSimulation:
 		"""
 		Return the final results as a Pandas DataFrame.
 		"""
-		sim_df = pd.DataFrame(self.drivers_data)
+		sim_df = pd.DataFrame(self.sim_data)
 		sim_df = sim_df.sort_values(by="position", ascending=True).reset_index(drop=True)
 		return sim_df
 	
