@@ -9,7 +9,7 @@ class RaceSimEvaluation:
 		self.sim_df = race_sim_obj.get_results_as_dataframe()
 		self.actual_race_df = race_df_obj.race_df
 
-	def compare_total_cumaltive_times(self):
+	def compare_total_cumulative_times(self):
 		comparison_results = []
 			
 		# Get unique drivers from the simulated DataFrame
@@ -184,5 +184,94 @@ class RaceSimEvaluation:
 
 
 class EvaluateMany:
-	def __init__(self):
-		pass
+    def __init__(self):
+        """
+        Initialize the EvaluateMany class.
+        """
+        self.race_evaluations = []  # List to store individual RaceSimEvaluation objects
+        self.results = []           # List to store evaluation results for each race
+
+    def add_race(self, race_sim_obj, race_df_obj, database_obj):
+        """
+        Add a race to the evaluation pipeline.
+
+        Args:
+            race_sim_obj: The RaceSimulation object for the race.
+            race_df_obj: The RaceDataframe object for the race.
+            database_obj: The DatabaseOperations object for the race.
+        """
+        # Create a RaceSimEvaluation object for the race
+        race_evaluation = RaceSimEvaluation(race_sim_obj, race_df_obj, database_obj)
+        self.race_evaluations.append(race_evaluation)
+
+    def evaluate_all_races(self):
+        """
+        Evaluate all added races and store their results.
+        """
+        for i, race_evaluation in enumerate(self.race_evaluations):
+            print(f"Evaluating race {i + 1}...")
+            # Perform evaluations for each metric
+            cumulative_times = race_evaluation.compare_total_cumulative_times()
+            position_accuracy = race_evaluation.get_position_accuracy_final_class()
+            total_to_front = race_evaluation.compare_total_to_front()
+
+            # Store the results
+            self.results.append({
+                "cumulative_times": cumulative_times,
+                "position_accuracy": position_accuracy,
+                "total_to_front": total_to_front,
+            })
+
+    def get_aggregated_results(self):
+        """
+        Aggregate results across all races and calculate averages.
+
+        Returns:
+            dict: Aggregated results with averages for each metric.
+        """
+        if not self.results:
+            raise ValueError("No races have been evaluated yet.")
+
+        # Initialize aggregated metrics
+        total_mae = 0
+        total_position_accuracy = 0
+        total_top_3_accuracy = 0
+        total_mean_error = 0
+        total_total_error = 0
+        total_simulated_gap_to_front = 0
+        total_actual_gap_to_front = 0
+        num_races = len(self.results)
+		
+        for result in self.results:
+            # Cumulative times
+            total_mae += result["cumulative_times"][1]  # Extract MAE from the tuple
+
+            # Position accuracy
+            total_position_accuracy += result["position_accuracy"]["position_accuracy"]
+            total_top_3_accuracy += result["position_accuracy"]["top_3_accuracy"]
+            total_mean_error += result["position_accuracy"]["mean_error"]
+            total_total_error += result["position_accuracy"]["total_error"]
+
+            # Total gaps to front
+            total_simulated_gap_to_front += result["total_to_front"]["total_simulated_gap_to_front"]
+            total_actual_gap_to_front += result["total_to_front"]["total_actual_gap_to_front"]
+
+        # Calculate averages
+        avg_mae = total_mae / num_races
+        avg_position_accuracy = total_position_accuracy / num_races
+        avg_top_3_accuracy = total_top_3_accuracy / num_races
+        avg_mean_error = total_mean_error / num_races
+        avg_total_error = total_total_error / num_races
+        avg_simulated_gap_to_front = total_simulated_gap_to_front / num_races
+        avg_actual_gap_to_front = total_actual_gap_to_front / num_races
+
+        # Return aggregated results
+        return {
+            "average_mae": avg_mae,
+            "average_position_accuracy": avg_position_accuracy,
+            "average_top_3_accuracy": avg_top_3_accuracy,
+            "average_mean_error": avg_mean_error,
+            "average_total_error": avg_total_error,
+            "average_simulated_gap_to_front": avg_simulated_gap_to_front,
+            "average_actual_gap_to_front": avg_actual_gap_to_front,
+        }
