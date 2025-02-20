@@ -25,44 +25,25 @@ class DatabaseOperations:
 		self.year = year
 		self.circuit = circuit
 		self.db_session = DatabaseOperations._Session()
-		self.race_session_db = self._get_race_session_db()
+		self.race_session_db = self._get_session("Race")
 		self.race_session_results_db = self._get_session_results_db()
-		self.quali_session_db = self._get_quali_session_db()
+		self.quali_session_db = self._get_session("Qualifying")
 	
-	def _get_race_session_db(self):
-		race_session = (self.db_session.query(Session)
+	def _get_session(self, session_type):
+		session = (self.db_session.query(Session)
 			.join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
 			.join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
 			.filter(
 				RacingWeekend.year == self.year,
 				Circuit.circuit_name == self.circuit,
-				Session.session_type == "Race"
+				Session.session_type == session_type
 			)
 			.first())
-		
-		if race_session is None:
-			raise SessionNotFoundError(f"No race session found for year {self.year} at circuit {self.circuit}")
-		
-		self.race_session_db = race_session
-		return race_session
-	
-	def _get_quali_session_db(self):
-		quali_session = (
-			self.db_session.query(Session)
-			.join(RacingWeekend, Session.weekend_id == RacingWeekend.racing_weekend_id)
-			.join(Circuit, RacingWeekend.circuit_id == Circuit.circuit_id)
-			.filter(
-				RacingWeekend.year == self.year,
-				Circuit.circuit_name == self.circuit,
-				Session.session_type == "Qualifying"
-			)
-			.first()
-		)
 
-		if not quali_session:
-			raise SessionNotFoundError(f"No qualifying session found for year {self.year} at circuit {self.circuit}")
+		if not session:
+			raise SessionNotFoundError(f"No {session_type} session found for year {self.year} at circuit {self.circuit}")
 		
-		return quali_session
+		return session
 
 
 	def _get_session_results_db(self):
@@ -77,6 +58,5 @@ class DatabaseOperations:
 
 		if not session_results:
 			raise SessionNotFoundError(f"No race results found for year {self.year} at circuit {self.circuit}")
-
 
 		return session_results
