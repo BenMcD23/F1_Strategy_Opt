@@ -191,15 +191,35 @@ class RaceDataSetup:
 		# Fill in missing tyre types and sectors for each driver
 		for driver, driver_coeffs in driver_tyre_coefficients.items():
 			for tyre in min_laps_by_tyre.keys():
-				if tyre not in driver_coeffs:
-					driver_coeffs[tyre] = {}
-				for sector in race_df["sector"].unique():
-					if sector not in driver_coeffs[tyre] and tyre in global_tyre_coefficients and sector in global_tyre_coefficients[tyre]:
-						driver_coeffs[tyre][sector] = global_tyre_coefficients[tyre][sector]
+				if tyre in global_tyre_coefficients:
+					if tyre not in driver_coeffs:
+						driver_coeffs[tyre] = {}
+					for sector in race_df["sector"].unique():
+						if sector not in driver_coeffs[tyre] and tyre in global_tyre_coefficients and sector in global_tyre_coefficients[tyre]:
+							driver_coeffs[tyre][sector] = global_tyre_coefficients[tyre][sector]
 
 		# {driverNum: {tyreType: {sector1Deg: [], sector2Deg: [], sector3Deg: []}}}
 		return driver_tyre_coefficients
-
+	
+	def get_unique_tyre_types(self):
+		"""
+		Extract all unique tyre types for which we have degradation data across all drivers.
+		
+		Parameters:
+			driver_tyre_coefficients (dict): The output of _get_driver_tyre_coefficients.
+				Structure: {driver_number: {tyre_type: {sector: [a, b, c]}}}
+		
+		Returns:
+			set: A set of unique tyre types (e.g., {1, 2, 3} for Hard, Medium, Soft).
+		"""
+		# Initialize a set to store unique tyre types
+		unique_tyre_types = set()
+		# Iterate over each driver's coefficients
+		for driver_coeffs in self.driver_tyre_coefficients.values():
+			# Add all tyre types for this driver to the set
+			unique_tyre_types.update(driver_coeffs.keys())
+		
+		return unique_tyre_types
 
 	def extract_driver_strategies(self):
 		# Initialize the dictionary to store strategies
@@ -227,6 +247,29 @@ class RaceDataSetup:
 		
 		return driver_strategies
 
+	def extract_driver_strategy(self, given_driver):
+		if given_driver is None:
+			raise ValueError("No driver specified. Please provide a valid driver number.")
+	
+		# Filter data for the given driver
+		driver_data = self.race_df[self.race_df["driver_number"] == given_driver]
+		
+		# Ensure the driver exists in the dataset
+		if driver_data.empty:
+			raise ValueError(f"Driver {given_driver} not found in the dataset.")
+
+		driver_data = self.race_df[self.race_df["driver_number"] == given_driver]
+		starting_tyre = driver_data[driver_data["lap_num"] == 1]["tyre_type"].values[0]
+		pits_dict = (
+			driver_data[driver_data["pit"]]
+			.set_index("lap_num")["tyre_type"]
+			.astype(int)
+			.to_dict()
+		)
+		pits_dict[1] = int(starting_tyre)
+		sorted_strategy = dict(sorted(pits_dict.items()))
+		return sorted_strategy
+	
 	def get_starting_positions(self):
 		return {driver_num: grid_pos for grid_pos, driver_num, _ in self.db_operations_obj.race_session_results_db}
 
@@ -282,5 +325,39 @@ class RaceDataSetup:
 			
 			# Add the driver's average pit stop time to the dictionary
 			average_pit_stop_times[driver_number] = average_pit_time
+		
+		overall_average_pit_time = pit_stops["pit_time"].mean()
+		average_pit_stop_times[0] = overall_average_pit_time
+
 
 		return average_pit_stop_times
+	
+
+	def get_driver_finishing_position(self, given_driver):
+		"""
+		Retrieve the finishing position for a given driver from the session results.
+
+		Parameters:
+			driver_number (int): The driver number for which to retrieve the finishing position.
+
+		Returns:
+			int: The finishing position of the driver.
+
+		Raises:
+			ValueError: If the driver is not found in the session results.
+			SessionNotFoundError: If no race results are found for the session.
+		"""
+		# Step 1: Get the session results
+		session_results = self.db_operations_obj.race_session_results_db
+
+		# Step 2: Filter the results for the given driver
+		for result in session_results:
+			grid_pos, driver_num, end_status = result
+			if driver_num == given_driver:
+				if end_status and (end_status.startswith("Finished") or end_status.startswith("+")):
+					return grid_pos  # Return the finishing position
+				else:
+					raise ValueError(f"Driver {given_driver} did not finish the race. End status: {end_status}")
+
+		# Step 3: If the driver is not found, raise an error
+		raise ValueError(f"Driver {given_driver} not found in the session results.")

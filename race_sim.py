@@ -48,7 +48,8 @@ class RaceSimulation:
 			sim_data.append({
 				"driver_number": driver,
 				"driver_name": self.race_data.driver_names[driver],
-				"pit_schedule": {key: value for key, value in self.race_data.driver_strategies[driver].items() if key != 1},
+				# "pit_schedule": {key: value for key, value in self.race_data.driver_strategies[driver].items() if key != 1},
+				"pit_schedule": self.race_data.driver_strategies[driver],
 				"tyre_type": self.race_data.driver_strategies[driver][1],
 				"lap_num": 0,
 				"sector": 0,
@@ -128,6 +129,8 @@ class RaceSimulation:
 
 			d["sector"] = sector
 
+			# print(f"Tyre: {d['tyre_type']}")
+			# print(f"Sec: {sector}")
 			# Calculate sector time based on tyre degradation, fuel correction, and safety car penalty
 			a, b, c = self.race_data.driver_tyre_coefficients[d["driver_number"]][d["tyre_type"]][sector]
 			sector_time = (
@@ -148,8 +151,13 @@ class RaceSimulation:
 			# Handle pit stops at the start of a lap (sector 1)
 			if sector == 1 and lap in d["pit_schedule"]:
 				d["pit"] = True
-				d["cumulative_time"] += self.race_data.driver_pit_times[d["driver_number"]]
-				d["stint_lap"] = 1
+				if d["driver_number"] in self.race_data.driver_pit_times:
+					# Add the driver's specific pit time if available
+					d["cumulative_time"] += self.race_data.driver_pit_times[d["driver_number"]]
+				else:
+					# Use the overall average pit time (key 0) if the driver doesn't have a specific pit time
+					d["cumulative_time"] += self.race_data.driver_pit_times[0]
+					d["stint_lap"] = 1
 				d["tyre_type"] = d["pit_schedule"][lap]
 			else:
 				d["pit"] = False
