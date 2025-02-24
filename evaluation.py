@@ -2,6 +2,14 @@ import pandas as pd
 
 class RaceSimEvaluation:
 	def __init__(self, race_sim_obj, race_df_obj, database_obj):
+		"""Initializes the RaceSimEvaluation object.
+
+        Args:
+            race_sim_obj: Object of RaceSimulation class
+            race_df_obj: Object of RaceDataframe class - this is the actual race dataframe
+            database_obj: Object of class DatabaseOperations class
+        """
+
 		self.race_sim_obj = race_sim_obj
 		self.race_df_obj = race_df_obj
 		self.database_obj = database_obj
@@ -10,6 +18,11 @@ class RaceSimEvaluation:
 		self.actual_race_df = race_df_obj.race_df
 
 	def compare_total_cumulative_times(self):
+		"""Compares the total cumulative times between simulated and actual race data
+
+        Returns:
+            tuple: A DataFrame with comparison results for each driver and the total Mean Absolute Error (MAE)
+        """
 		comparison_results = []
 			
 		# Get unique drivers from the simulated DataFrame
@@ -47,10 +60,16 @@ class RaceSimEvaluation:
 		
 		return comparison_df, total_mae
 	
-	# def get_mean_cumulative_time_error(self):
-
-
 	def get_position_accuracy_final_class(self):
+		""" Evaluates the accuracy of the simulated results against the actual final classification results,
+			this is after any penalties have been applied
+
+        Raises:
+            ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
+
+        Returns:
+            dict: Some metrics
+        """
 		# Extract simulated final positions
 		sim_results = (
 			self.sim_df[self.sim_df["retired"] == False]  # Exclude retired drivers
@@ -88,6 +107,15 @@ class RaceSimEvaluation:
 
 
 	def get_position_accuracy_end_of_race(self):
+		""" Evaluates the accuracy of the simulated results against the results at the end of the race,
+			probably a more fair comparison
+
+        Raises:
+            ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
+
+        Returns:
+            dict: Some metrics
+        """
 		# Extract simulated final positions
 		sim_results = (
 			self.sim_df[self.sim_df["retired"] == False]  # Exclude retired drivers
@@ -129,6 +157,19 @@ class RaceSimEvaluation:
 
 
 	def compare_total_to_front(self):
+		"""
+		Compares the total gaps to the leader between simulated and actual race data.
+
+		This method calculates the cumulative time gaps to the leader for all drivers 
+		(excluding retired drivers) in both simulated and actual race data. It then sums 
+		these gaps to provide a total comparison.
+
+		Returns:
+			dict: A dictionary containing the total gaps to the leader for both simulated 
+				and actual race data:
+				- total_simulated_gap_to_front: Total gap to the leader in simulated data.
+				- total_actual_gap_to_front: Total gap to the leader in actual data.
+		"""
 		def _get_retired_drivers():
 			# Initialize an empty list to store retired drivers
 			retired_drivers = []
@@ -150,7 +191,7 @@ class RaceSimEvaluation:
 			self.sim_df[self.sim_df["position"] == 1]  # Leader (first position)
 			.groupby("driver_number")["cumulative_time"]
 			.max()
-			.min()  # In case of ties, take the minimum time
+			.min()
 		)
 		sim_gaps_to_front = (
 			self.sim_df[~self.sim_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
@@ -165,7 +206,7 @@ class RaceSimEvaluation:
 			self.actual_race_df[self.actual_race_df["position"] == 1]  # Leader (first position)
 			.groupby("driver_number")["cumulative_time"]
 			.max()
-			.min()  # In case of ties, take the minimum time
+			.min()
 		)
 		actual_gaps_to_front = (
 			self.actual_race_df[~self.actual_race_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
@@ -185,15 +226,13 @@ class RaceSimEvaluation:
 
 class EvaluateMany:
     def __init__(self):
-        """
-        Initialize the EvaluateMany class.
+        """ Initialize the EvaluateMany class.
         """
         self.race_evaluations = []  # List to store individual RaceSimEvaluation objects
         self.results = []           # List to store evaluation results for each race
 
     def add_race(self, race_sim_obj, race_df_obj, database_obj):
-        """
-        Add a race to the evaluation pipeline.
+        """ Add a race to the evaluation pipeline.
 
         Args:
             race_sim_obj: The RaceSimulation object for the race.
@@ -205,8 +244,7 @@ class EvaluateMany:
         self.race_evaluations.append(race_evaluation)
 
     def evaluate_all_races(self):
-        """
-        Evaluate all added races and store their results.
+        """ Evaluate all added races and store their results.
         """
         for i, race_evaluation in enumerate(self.race_evaluations):
             print(f"Evaluating race {i + 1}...")
@@ -223,8 +261,7 @@ class EvaluateMany:
             })
 
     def get_aggregated_results(self):
-        """
-        Aggregate results across all races and calculate averages.
+        """ Aggregate results across all races and calculate averages.
 
         Returns:
             dict: Aggregated results with averages for each metric.
