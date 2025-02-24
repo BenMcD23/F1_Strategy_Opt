@@ -1,15 +1,13 @@
 from bayes_opt import BayesianOptimization
-import pandas as pd
 
 from race_sim import RaceSimulation
 
 from deap import base, creator, tools, algorithms
-from multiprocessing import Pool
 import random
 
 from scipy.optimize import dual_annealing
 
-
+import math
 class Optimisation:
 	def __init__(self, race_data, overtake_model, given_driver):
 		"""
@@ -444,3 +442,172 @@ class Optimisation:
 		top_10_strategies = unique_strategies[:10]
 
 		return top_10_strategies
+	
+
+
+
+	def monte_carlo_tree_search(self, max_iterations=100, exploration_weight=1.414):
+		"""
+		Perform Monte Carlo Tree Search (MCTS) to find optimal strategies.
+		Enforces F1 rules: at least two distinct tyre compounds must be used.
+		Returns the top 10 strategies based on simulated performance.
+		"""
+		class Node:
+			def __init__(self, strategy, parent=None):
+				self.strategy = strategy.copy()
+				self.parent = parent
+				self.children = []
+				self.visits = 0
+				self.total_score = 0  # Higher score is better
+
+			def ucb(self, exploration_weight):
+				if self.visits == 0:
+					return float('inf') if self.parent else float('inf')
+				exploitation = self.total_score / self.visits
+				if self.parent:
+					exploration = exploration_weight * math.sqrt(math.log(self.parent.visits) / self.visits)
+				else:
+					exploration = exploration_weight * math.sqrt(math.log(self.visits + 1) / (self.visits + 1))
+				return exploitation + exploration
+
+		def _is_valid_strategy(strategy):
+			"""
+			Check if the strategy uses at least two distinct tyre compounds.
+			"""
+			tyre_types_used = set(strategy.values())
+			return len(tyre_types_used) >= 2
+
+		def _generate_child_strategies(current_strategy):
+			"""
+			Generate valid child strategies that enforce F1 rules.
+			"""
+			child_strategies = []
+			current_pits = sorted([lap for lap in current_strategy.keys() if lap != 1])
+			num_pits = len(current_pits)
+			
+			# Add a new pit stop if possible
+			if num_pits < 3:
+				last_pit = current_pits[-1] if num_pits > 0 else 1
+				min_lap = last_pit + 1
+				max_lap = self.race_data.max_laps - 1
+				if min_lap <= max_lap:
+					new_lap = random.randint(min_lap, max_lap)
+					available_tyres = [tyre for tyre in self.unique_tyre_types if tyre != current_strategy[last_pit]]
+					if not available_tyres:
+						available_tyres = self.unique_tyre_types
+					new_tyre = random.choice(available_tyres)
+					new_strat = current_strategy.copy()
+					new_strat[new_lap] = new_tyre
+					if _is_valid_strategy(new_strat):
+						child_strategies.append(new_strat)
+			
+			# Modify existing pit stops
+			for lap in list(current_strategy.keys()):
+				if lap == 1:
+					continue  # Skip starting tyre
+				# Change lap
+				new_lap = lap + random.randint(-5, 5)
+				new_lap = max(2, min(new_lap, self.race_data.max_laps - 1))
+				if new_lap not in current_strategy or new_lap == lap:
+					new_strat = current_strategy.copy()
+					del new_strat[lap]
+					new_strat[new_lap] = current_strategy[lap]
+					if _is_valid_strategy(new_strat):
+						child_strategies.append(new_strat)
+				# Change tyre
+				current_tyre = current_strategy[lap]
+				available_tyres = [tyre for tyre in self.unique_tyre_types if tyre != current_tyre]
+				if available_tyres:
+					new_tyre = random.choice(available_tyres)
+					new_strat = current_strategy.copy()
+					new_strat[lap] = new_tyre
+					if _is_valid_strategy(new_strat):
+						child_strategies.append(new_strat)
+			
+			# Remove a pit stop
+			if current_pits:
+				lap_to_remove = random.choice(current_pits)
+				new_strat = current_strategy.copy()
+				del new_strat[lap_to_remove]
+				if _is_valid_strategy(new_strat):
+					child_strategies.append(new_strat)
+			
+			# Deduplicate
+			unique = []
+			seen = set()
+			for strat in child_strategies:
+				key = frozenset(strat.items())
+				if key not in seen:
+					seen.add(key)
+					unique.append(strat)
+			return unique
+
+		root = Node(self.initial_strategy)
+
+		for _ in range(max_iterations):
+			node = root
+			path = [node]
+
+			# Selection
+			while node.children:
+				node = max(node.children, key=lambda n: n.ucb(exploration_weight))
+				path.append(node)
+
+			# Expansion
+			if node.visits > 0 or node == root:
+				children_strategies = _generate_child_strategies(node.strategy)
+				for strat in children_strategies:
+					child = Node(strat, parent=node)
+					node.children.append(child)
+				if node.children:
+					node = random.choice(node.children)
+					path.append(node)
+
+			# Simulation
+			try:
+				sim = RaceSimulation(self.race_data, self.overtake_model, self.given_driver, node.strategy)
+				sim_data = sim.simulate()
+				position = next(d["position"] for d in sim_data if d["driver_number"] == self.given_driver)
+				score = -position  # Higher score is better
+			except Exception as e:
+				score = -20  # Penalize invalid
+
+			# Backpropagation
+			for n in path:
+				n.visits += 1
+				n.total_score += score
+
+		# Collect all strategies
+		all_strategies = []
+		stack = [root]
+		while stack:
+			current = stack.pop()
+			if current.visits > 0:
+				all_strategies.append((current.strategy, current.total_score / current.visits))
+			stack.extend(current.children)
+
+		# Deduplicate and sort
+		seen = set()
+		unique_strategies = []
+		for strategy, score in sorted(all_strategies, key=lambda x: x[1], reverse=True):
+			key = frozenset(strategy.items())
+			if key not in seen:
+				seen.add(key)
+				unique_strategies.append(strategy)
+			if len(unique_strategies) >= 10:
+				break
+
+		# Evaluate final positions
+		top_10 = []
+		for strat in unique_strategies[:10]:
+			try:
+				sim = RaceSimulation(self.race_data, self.overtake_model, self.given_driver, strat)
+				sim_data = sim.simulate()
+				pos = next(d["position"] for d in sim_data if d["driver_number"] == self.given_driver)
+			except:
+				pos = 20
+			top_10.append({"strategy": strat, "position": pos})
+
+		# Sort by position
+		top_10.sort(key=lambda x: x["position"])
+		return top_10[:10]
