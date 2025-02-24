@@ -236,13 +236,3 @@ class RaceSimulation:
 		return sim_df
 	
 	
-
-# db1 = DatabaseOperations(2024, "Sakhir")
-# race1 = RaceDataframe(db1)
-# race_data1 = RaceDataSetup(db1, race1)
-# overtake1 = OvertakingModel(race1.race_df)
-
-# race_sim = RaceSimulation(race_data1, overtake1)
-# race_sim.simulate()
-
-# race_sim.get_results_as_dataframe()

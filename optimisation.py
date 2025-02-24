@@ -1,164 +1,331 @@
 from bayes_opt import BayesianOptimization
-import numpy as np
 import pandas as pd
 
 from race_sim import RaceSimulation
 
+from deap import base, creator, tools, algorithms
+import random
+
+from scipy.optimize import dual_annealing
+
+
 class Optimisation:
 	def __init__(self, race_data, overtake_model):
 		"""
-		Initialize the Optimization class with race data and an overtaking model.
+		Initialize the optimisation class with race data and an overtaking model.
 		"""
 		self.race_data = race_data
 		self.overtake_model = overtake_model
 
-	def bayesian_strategy_optimization(self, given_driver, max_iterations=50):
+	def bayesian_strategy_optimisation(self, given_driver, max_iterations=50):
 		"""
-		Perform Bayesian Optimization to find the most optimal strategy for a given driver.
-		Enforces F1 rules: at least two different tyre compounds must be used.
+		Perform Bayesian optimisation to find the most optimal strategy for a given driver.
+		Explores the starting tyre and enforces F1 rules: at least two different tyre compounds must be used.
 		Allows up to 3 pit stops but does not require all 3.
-		Explores around the driver's initial strategy.
 		"""
-		# Step 1: Get unique tyre types and convert to a sorted list
-		unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())  # Convert set to sorted list
+		def map_to_nearest_tyre(value):
+			# Round the value to the nearest integer
+			rounded_value = round(value)
+			# Clamp the value to ensure it is within the valid range [1, 3]
+			return max(1, min(rounded_value, 3))
+			
 		
-		# Step 2: Extract the initial strategy for the given driver
-		initial_strategy = self.race_data.driver_strategies[given_driver]
-		
-		# Step 3: Validate and adjust the initial strategy if necessary
-		initial_tyre_types_used = set(initial_strategy.values())
-		if len(initial_tyre_types_used) < 2:
-			# Modify the initial strategy to satisfy the F1 rule
-			print("Initial strategy violates F1 rules. Adjusting...")
-			# Add a second tyre type if only one is used
-			additional_tyre = [tyre for tyre in unique_tyre_types if tyre not in initial_tyre_types_used][0]
-			initial_strategy[list(initial_strategy.keys())[1]] = additional_tyre
-		
-		# Step 4: Define parameter bounds for Bayesian Optimization
+		# parameter bounds for Bayesian optimisation
 		pbounds = {
+			"start_tyre": (1, 3),  # Index for starting tyre selection
+			"num_pit_stops": (1, 3),  # Number of pit stops (1 to 3)
 			"pit1_lap": (2, self.race_data.max_laps - 1),  # First pit stop lap
 			"pit2_lap": (2, self.race_data.max_laps - 1),  # Second pit stop lap
 			"pit3_lap": (2, self.race_data.max_laps - 1),  # Third pit stop lap
+			"pit1_tyre": (1, 3),
+			"pit2_tyre": (1, 3),
+			"pit3_tyre": (1, 3),
 		}
-		
-		# Step 5: Map initial strategy to optimization parameters
-		def map_strategy_to_params(strategy):
-			"""Map a strategy dictionary to optimization parameters."""
-			pit_laps = sorted([lap for lap in strategy.keys() if lap > 1])  # Exclude lap 1 (starting tyre)
-			tyres = [strategy[lap] for lap in pit_laps]
+
+		# Step 3: Define the objective function for Bayesian optimisation
+		def objective_function(start_tyre, num_pit_stops, pit1_lap, pit2_lap, pit3_lap, pit1_tyre, pit2_tyre, pit3_tyre):
+			# Map continuous values to discrete tyre types
+			start_tyre = map_to_nearest_tyre(start_tyre)
+			pit1_tyre = map_to_nearest_tyre(pit1_tyre)
+			pit2_tyre = map_to_nearest_tyre(pit2_tyre)
+			pit3_tyre = map_to_nearest_tyre(pit3_tyre)
 			
-			# Ensure there are up to 3 pit stops
-			pit_laps += [self.race_data.max_laps] * (3 - len(pit_laps))  # Pad with max laps if fewer than 3 stops
-			tyres += [tyres[-1]] * (3 - len(tyres))  # Repeat the last tyre if fewer than 3 stops
+			# Determine the number of pit stops
+			num_pit_stops = int(num_pit_stops)  # Convert to integer
 			
-			# Map tyre types to indices
-			tyre_indices = [unique_tyre_types.index(tyre) for tyre in tyres]
-			
-			return {
-				"pit1_lap": pit_laps[0],
-				"pit1_tyre_idx": tyre_indices[0],
-				"pit2_lap": pit_laps[1],
-				"pit2_tyre_idx": tyre_indices[1],
-				"pit3_lap": pit_laps[2],
-				"pit3_tyre_idx": tyre_indices[2],
-			}
-		
-		initial_params = map_strategy_to_params(initial_strategy)
-		
-		# Step 6: Define the objective function for Bayesian Optimization
-		def objective_function(pit1_lap, pit1_tyre_idx, pit2_lap, pit2_tyre_idx, pit3_lap, pit3_tyre_idx):
-			# Map tyre indices to actual tyre types
-			starting_tyre = unique_tyre_types[int(pit1_tyre_idx) % len(unique_tyre_types)]
-			pit1_tyre = unique_tyre_types[int(pit1_tyre_idx) % len(unique_tyre_types)]
-			pit2_tyre = unique_tyre_types[int(pit2_tyre_idx) % len(unique_tyre_types)]
-			pit3_tyre = unique_tyre_types[int(pit3_tyre_idx) % len(unique_tyre_types)]
-			
-			# Ensure pit laps are unique and within valid range
-			pit_laps = sorted(set([int(pit1_lap), int(pit2_lap), int(pit3_lap)]))
-			tyres = [pit1_tyre, pit2_tyre, pit3_tyre]
-			
-			# Filter out invalid pit laps (e.g., out of bounds or overlapping)
-			valid_pit_laps = []
-			valid_tyres = []
-			for lap, tyre in zip(pit_laps, tyres):
-				if 2 <= lap < self.race_data.max_laps:  # Only include valid pit laps
-					valid_pit_laps.append(lap)
-					valid_tyres.append(tyre)
+			# Collect pit stop laps and tyre types
+			pit_laps = sorted([int(pit1_lap), int(pit2_lap), int(pit3_lap)])[:num_pit_stops]
+			pit_tyres = [pit1_tyre, pit2_tyre, pit3_tyre][:num_pit_stops]
 			
 			# Construct the strategy dictionary
-			strategy = {1: starting_tyre}  # Starting tyre
-			for lap, tyre in zip(valid_pit_laps, valid_tyres):
-				strategy[lap] = tyre
+			strategy = {1: start_tyre}  # Starting tyre
+			for lap, tyre in zip(pit_laps, pit_tyres):
+				if 2 <= lap < self.race_data.max_laps:  # Only include valid pit laps
+					strategy[lap] = tyre
 			
 			# Enforce F1 rule: At least two distinct tyre types must be used
 			tyre_types_used = set(strategy.values())
 			if len(tyre_types_used) < 2:
-				return -20.0  # Penalize heavily for violating the rule
+				return -20.0  # Penalize strategies that violate F1 rules
 			
 			# Evaluate the strategy using the race simulation
 			try:
 				sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
 				sim_data = sim.simulate()
-				sim_df = pd.DataFrame(sim_data)
-				final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
-				if final_position == 1:  # Stop if the driver achieves position 1
-			   		raise StopIteration(f"Optimization stopped early: Achieved position {final_position}")
-			
-				return -final_position  # Negative because BayesianOptimization maximizes by default
-			
-
-				
+				final_position = next(d["position"] for d in sim_data if d["driver_number"] == given_driver)
+				return -final_position  # Negative because Bayesianoptimisation maximizes by default
 			except Exception as e:
 				print(f"Error during simulation: {e}")
-				return -20.0  # Return worst position in case of errors
-		
-		# Step 7: Initialize the Bayesian Optimizer
-		optimizer = BayesianOptimization(
+				return -20.0  # Penalize errors
+			
+		# Step 4: Initialize the Bayesian optimiser
+		optimiser = BayesianOptimization(
 			f=objective_function,
-			pbounds={
-				**pbounds,
-				"pit1_tyre_idx": (0, len(unique_tyre_types) - 1),  # Index for tyre type selection
-				"pit2_tyre_idx": (0, len(unique_tyre_types) - 1),  # Index for tyre type selection
-				"pit3_tyre_idx": (0, len(unique_tyre_types) - 1),  # Index for tyre type selection
-			},
+			pbounds=pbounds,
 			verbose=2,
 			random_state=42
 		)
 		
-		# Step 8: Add the initial strategy as an initial point
-		optimizer.probe(
-			params=initial_params,
-			lazy=True  # Evaluate the initial point lazily
-		)
+		# Step 5: Add an initial point based on the driver's initial strategy
+		initial_strategy = self.race_data.driver_strategies[given_driver]
+
+		# Sort the keys of the initial strategy by lap number
+		sorted_laps = sorted(initial_strategy.keys())
+
+		# Construct the initial parameters dictionary
+		initial_params = {
+			"start_tyre": initial_strategy[1],  # Starting tyre (lap 1)
+			"num_pit_stops": len(initial_strategy) - 1,  # Number of pit stops
+			"pit1_lap": sorted_laps[1] if len(sorted_laps) > 1 else 0,  # First pit stop lap
+			"pit2_lap": sorted_laps[2] if len(sorted_laps) > 2 else 0,  # Second pit stop lap
+			"pit3_lap": sorted_laps[3] if len(sorted_laps) > 3 else 0,  # Third pit stop lap
+			"pit1_tyre": initial_strategy[sorted_laps[1]] if len(sorted_laps) > 1 else 0,  # First pit stop tyre
+			"pit2_tyre": initial_strategy[sorted_laps[2]] if len(sorted_laps) > 2 else 0,  # Second pit stop tyre
+			"pit3_tyre": initial_strategy[sorted_laps[3]] if len(sorted_laps) > 3 else 0,  # Third pit stop tyre
+		}
+
+		optimiser.probe(params=initial_params, lazy=True)
 		
-		# Step 9: Perform the optimization
-		optimizer.maximize(init_points=5, n_iter=max_iterations)
+		optimiser.maximize(init_points=5, n_iter=max_iterations)
 		
-		# Step 10: Extract the best strategy from the optimizer
-		best_params = optimizer.max["params"]
-		best_starting_tyre = unique_tyre_types[int(best_params["pit1_tyre_idx"]) % len(unique_tyre_types)]
-		pit_laps = sorted(set([int(best_params["pit1_lap"]), int(best_params["pit2_lap"]), int(best_params["pit3_lap"])]))
-		tyres = [
-			unique_tyre_types[int(best_params["pit1_tyre_idx"]) % len(unique_tyre_types)],
-			unique_tyre_types[int(best_params["pit2_tyre_idx"]) % len(unique_tyre_types)],
-			unique_tyre_types[int(best_params["pit3_tyre_idx"]) % len(unique_tyre_types)]
-		]
+		# Step 7: Extract the best strategy from the optimiser
+		best_params = optimiser.max["params"]
+		best_start_tyre = map_to_nearest_tyre(best_params["start_tyre"])
+		best_num_pit_stops = int(best_params["num_pit_stops"])
 		
+		# Collect pit stop laps and tyre types based on the number of pit stops
+		# Extract pit stop laps and tyre types based on the number of pit stops
+		pit_laps = sorted([int(best_params["pit1_lap"]), int(best_params["pit2_lap"]), int(best_params["pit3_lap"])])[:best_num_pit_stops]
+		pit_tyres = [
+			map_to_nearest_tyre(best_params["pit1_tyre"]),
+			map_to_nearest_tyre(best_params["pit2_tyre"]),
+			map_to_nearest_tyre(best_params["pit3_tyre"])
+		][:best_num_pit_stops]
+
 		# Construct the best strategy dictionary
-		best_strategy = {1: best_starting_tyre}
-		for lap, tyre in zip(pit_laps, tyres):
+		best_strategy = {1: best_start_tyre}  # Starting tyre
+		for lap, tyre in zip(pit_laps, pit_tyres):
 			if 2 <= lap < self.race_data.max_laps:  # Only include valid pit laps
 				best_strategy[lap] = tyre
-		
-		# Validate the best strategy (should already satisfy the rule due to enforcement)
-		tyre_types_used = set(best_strategy.values())
-		if len(tyre_types_used) < 2:
-			raise ValueError("Best strategy violates F1 rules: fewer than 2 tyre types used.")
-		
+
 		# Evaluate the best strategy to get the finishing position
+
+		top_10_runs = sorted(optimiser.res, key=lambda x: x["target"], reverse=True)[:10]
+		top_10_strategies = []
+		for run in top_10_runs:
+			params = run["params"]
+			start_tyre = map_to_nearest_tyre(params["start_tyre"])
+			num_pit_stops = int(params["num_pit_stops"])
+			pit_laps = sorted([int(params["pit1_lap"]), int(params["pit2_lap"]), int(params["pit3_lap"])])[:num_pit_stops]
+			pit_tyres = [
+				map_to_nearest_tyre(params["pit1_tyre"]),
+				map_to_nearest_tyre(params["pit2_tyre"]),
+				map_to_nearest_tyre(params["pit3_tyre"])
+			][:num_pit_stops]
+			strategy = {1: start_tyre}
+			for lap, tyre in zip(pit_laps, pit_tyres):
+				if 2 <= lap < self.race_data.max_laps:
+					strategy[lap] = tyre
+			top_10_strategies.append({
+				"strategy": strategy,
+				"position": -run["target"]  # Convert back to positive position
+			})
+
+		return top_10_strategies
+	
+
+
+	def genetic_algorithm_optimisation(self, given_driver, population_size=50, generations=50):
+		"""
+		Perform Genetic Algorithm optimisation to find the most optimal strategy for a given driver.
+		"""
+		# Unique tyre types
+		unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
+		
+		# Define the fitness and individual classes
+		creator.create("FitnessMin", base.Fitness, weights=(-1.0,))  # Minimize final position
+		creator.create("Individual", list, fitness=creator.FitnessMin)
+		
+		toolbox = base.Toolbox()
+		
+		# Define strategy representation
+		def create_strategy():
+			"""
+			Create a random strategy as an individual.
+			[starting_tyre, pit1_lap, pit1_tyre, pit2_lap, pit2_tyre, pit3_lap, pit3_tyre]
+			"""
+			return [
+				random.choice(unique_tyre_types),  # Starting tyre
+				random.randint(2, self.race_data.max_laps - 1),  # Pit1 lap
+				random.choice(unique_tyre_types),  # Pit1 tyre
+				random.randint(2, self.race_data.max_laps - 1),  # Pit2 lap
+				random.choice(unique_tyre_types),  # Pit2 tyre
+				random.randint(2, self.race_data.max_laps - 1),  # Pit3 lap
+				random.choice(unique_tyre_types),  # Pit3 tyre
+			]
+		
+		toolbox.register("individual", tools.initIterate, creator.Individual, create_strategy)
+		toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+		
+		# Fitness function
+		def evaluate(individual):
+			"""
+			Evaluate the fitness of an individual strategy.
+			"""
+			starting_tyre, pit1_lap, pit1_tyre, pit2_lap, pit2_tyre, pit3_lap, pit3_tyre = individual
+			
+			# Construct the strategy dictionary
+			strategy = {
+				1: starting_tyre,
+				pit1_lap: pit1_tyre,
+				pit2_lap: pit2_tyre,
+				pit3_lap: pit3_tyre,
+			}
+			
+			# Simulate the race with the strategy
+			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
+			sim_data = sim.simulate()
+			sim_df = pd.DataFrame(sim_data)
+			final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+			
+			return (final_position,)  # Return as a tuple for DEAP
+		
+		toolbox.register("evaluate", evaluate)
+		toolbox.register("mate", tools.cxTwoPoint)  # Crossover
+		
+		# Custom mutation function
+		def mutate_strategy(individual):
+			"""
+			Custom mutation function to ensure valid tyre types.
+			"""
+			for i in range(len(individual)):
+				if i % 2 == 0:  # Mutate tyre types (even indices)
+					individual[i] = random.choice(unique_tyre_types)
+				else:  # Mutate pit stop laps (odd indices)
+					individual[i] = random.randint(2, self.race_data.max_laps - 1)
+			return individual,
+		
+		toolbox.register("mutate", mutate_strategy)
+		toolbox.register("select", tools.selTournament, tournsize=3)
+		
+		# Create the initial population
+		population = toolbox.population(n=population_size)
+		
+		# Run the genetic algorithm
+		print("Running Genetic Algorithm...")
+		stats = tools.Statistics(lambda ind: ind.fitness.values)
+		stats.register("avg", lambda x: sum(val[0] for val in x) / len(x))
+		stats.register("min", lambda x: min(val[0] for val in x))
+		stats.register("max", lambda x: max(val[0] for val in x))
+		
+		population, logbook = algorithms.eaSimple(
+			population,
+			toolbox,
+			cxpb=0.7,  # Crossover probability
+			mutpb=0.2,  # Mutation probability
+			ngen=generations,
+			stats=stats,
+			verbose=True
+		)
+		
+		# Extract the best strategy from the final population
+		best_individual = tools.selBest(population, k=1)[0]
+		starting_tyre, pit1_lap, pit1_tyre, pit2_lap, pit2_tyre, pit3_lap, pit3_tyre = best_individual
+		
+		best_strategy = {
+			1: starting_tyre,
+			pit1_lap: pit1_tyre,
+			pit2_lap: pit2_tyre,
+			pit3_lap: pit3_tyre,
+		}
+		
+		# Simulate the race with the best strategy
 		sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=best_strategy)
 		sim_data = sim.simulate()
 		sim_df = pd.DataFrame(sim_data)
 		best_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
 		
 		return best_strategy, best_position
+	
+	
+
+	def simulated_annealing_optimisation(self, given_driver):
+		# Define bounds for the parameters
+		unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
+		bounds = [
+			(0, len(unique_tyre_types) - 1),  # Starting tyre index
+			(2, self.race_data.max_laps - 1),  # Pit1 lap
+			(0, len(unique_tyre_types) - 1),  # Pit1 tyre index
+			(2, self.race_data.max_laps - 1),  # Pit2 lap
+			(0, len(unique_tyre_types) - 1),  # Pit2 tyre index
+			(2, self.race_data.max_laps - 1),  # Pit3 lap
+			(0, len(unique_tyre_types) - 1),  # Pit3 tyre index
+		]
+
+		# Objective function
+		def objective_function(params):
+			starting_tyre_idx, pit1_lap, pit1_tyre_idx, pit2_lap, pit2_tyre_idx, pit3_lap, pit3_tyre_idx = params
+			starting_tyre = unique_tyre_types[int(starting_tyre_idx)]
+			pit1_tyre = unique_tyre_types[int(pit1_tyre_idx)]
+			pit2_tyre = unique_tyre_types[int(pit2_tyre_idx)]
+			pit3_tyre = unique_tyre_types[int(pit3_tyre_idx)]
+
+			strategy = {
+				1: starting_tyre,
+				int(pit1_lap): pit1_tyre,
+				int(pit2_lap): pit2_tyre,
+				int(pit3_lap): pit3_tyre,
+			}
+
+			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
+			sim_data = sim.simulate()
+			sim_df = pd.DataFrame(sim_data)
+			final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+			return final_position
+
+		# Run simulated annealing
+		result = dual_annealing(objective_function, bounds, maxiter=100)
+		best_params = result.x
+
+		# Extract the best strategy
+		starting_tyre = unique_tyre_types[int(best_params[0])]
+		pit1_lap, pit1_tyre = int(best_params[1]), unique_tyre_types[int(best_params[2])]
+		pit2_lap, pit2_tyre = int(best_params[3]), unique_tyre_types[int(best_params[4])]
+		pit3_lap, pit3_tyre = int(best_params[5]), unique_tyre_types[int(best_params[6])]
+
+		best_strategy = {
+			1: starting_tyre,
+			pit1_lap: pit1_tyre,
+			pit2_lap: pit2_tyre,
+			pit3_lap: pit3_tyre,
+		}
+
+		# Simulate the race with the best strategy
+		sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=best_strategy)
+		sim_data = sim.simulate()
+		sim_df = pd.DataFrame(sim_data)
+		best_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+
+		return best_strategy, best_position
+
+
