@@ -34,12 +34,7 @@ class Optimisation:
 		Explores the starting tyre and enforces F1 rules: at least two different tyre compounds must be used.
 		Allows up to 3 pit stops but does not require all 3.
 		"""
-		def map_to_nearest_tyre(value):
-			# Round the value to the nearest integer
-			rounded_value = round(value)
-			# Clamp the value to ensure it is within the valid range [1, 3]
-			return max(1, min(rounded_value, 3))
-			
+
 		
 		# parameter bounds for Bayesian optimisation
 		pbounds = {
@@ -56,10 +51,10 @@ class Optimisation:
 		# Step 3: Define the objective function for Bayesian optimisation
 		def objective_function(start_tyre, num_pit_stops, pit1_lap, pit2_lap, pit3_lap, pit1_tyre, pit2_tyre, pit3_tyre):
 			# Map continuous values to discrete tyre types
-			start_tyre = map_to_nearest_tyre(start_tyre)
-			pit1_tyre = map_to_nearest_tyre(pit1_tyre)
-			pit2_tyre = map_to_nearest_tyre(pit2_tyre)
-			pit3_tyre = map_to_nearest_tyre(pit3_tyre)
+			start_tyre = self._map_to_nearest_tyre(start_tyre)
+			pit1_tyre = self._map_to_nearest_tyre(pit1_tyre)
+			pit2_tyre = self._map_to_nearest_tyre(pit2_tyre)
+			pit3_tyre = self._map_to_nearest_tyre(pit3_tyre)
 			
 			# Determine the number of pit stops
 			num_pit_stops = int(num_pit_stops)  # Convert to integer
@@ -119,16 +114,16 @@ class Optimisation:
 		
 		# Step 7: Extract the best strategy from the optimiser
 		best_params = optimiser.max["params"]
-		best_start_tyre = map_to_nearest_tyre(best_params["start_tyre"])
+		best_start_tyre = self._map_to_nearest_tyre(best_params["start_tyre"])
 		best_num_pit_stops = int(best_params["num_pit_stops"])
 		
 		# Collect pit stop laps and tyre types based on the number of pit stops
 		# Extract pit stop laps and tyre types based on the number of pit stops
 		pit_laps = sorted([int(best_params["pit1_lap"]), int(best_params["pit2_lap"]), int(best_params["pit3_lap"])])[:best_num_pit_stops]
 		pit_tyres = [
-			map_to_nearest_tyre(best_params["pit1_tyre"]),
-			map_to_nearest_tyre(best_params["pit2_tyre"]),
-			map_to_nearest_tyre(best_params["pit3_tyre"])
+			self._map_to_nearest_tyre(best_params["pit1_tyre"]),
+			self._map_to_nearest_tyre(best_params["pit2_tyre"]),
+			self._map_to_nearest_tyre(best_params["pit3_tyre"])
 		][:best_num_pit_stops]
 
 		# Construct the best strategy dictionary
@@ -143,13 +138,13 @@ class Optimisation:
 		top_10_strategies = []
 		for run in top_10_runs:
 			params = run["params"]
-			start_tyre = map_to_nearest_tyre(params["start_tyre"])
+			start_tyre = self._map_to_nearest_tyre(params["start_tyre"])
 			num_pit_stops = int(params["num_pit_stops"])
 			pit_laps = sorted([int(params["pit1_lap"]), int(params["pit2_lap"]), int(params["pit3_lap"])])[:num_pit_stops]
 			pit_tyres = [
-				map_to_nearest_tyre(params["pit1_tyre"]),
-				map_to_nearest_tyre(params["pit2_tyre"]),
-				map_to_nearest_tyre(params["pit3_tyre"])
+				self._map_to_nearest_tyre(params["pit1_tyre"]),
+				self._map_to_nearest_tyre(params["pit2_tyre"]),
+				self._map_to_nearest_tyre(params["pit3_tyre"])
 			][:num_pit_stops]
 			strategy = {1: start_tyre}
 			for lap, tyre in zip(pit_laps, pit_tyres):
@@ -354,25 +349,20 @@ class Optimisation:
 			"pit3_tyre": (1, num_tyres),   # Index for third pit stop tyre
 		}
 
-		# Helper function to map continuous values to discrete tyre indices
-		def map_to_nearest_tyre(value):
-			rounded_value = round(value)
-			return max(1, min(rounded_value, num_tyres))
-
 		# List to log all evaluated strategies and their performance
 		evaluated_strategies = []
 
 		# Objective function
 		def objective_function(params):
 			# Extract parameters
-			start_tyre = map_to_nearest_tyre(params["start_tyre"])
+			start_tyre = self._map_to_nearest_tyre(params["start_tyre"])
 			num_pit_stops = int(params["num_pit_stops"])
 			pit1_lap = int(params["pit1_lap"])
 			pit2_lap = int(params["pit2_lap"])
 			pit3_lap = int(params["pit3_lap"])
-			pit1_tyre = map_to_nearest_tyre(params["pit1_tyre"])
-			pit2_tyre = map_to_nearest_tyre(params["pit2_tyre"])
-			pit3_tyre = map_to_nearest_tyre(params["pit3_tyre"])
+			pit1_tyre = self._map_to_nearest_tyre(params["pit1_tyre"])
+			pit2_tyre = self._map_to_nearest_tyre(params["pit2_tyre"])
+			pit3_tyre = self._map_to_nearest_tyre(params["pit3_tyre"])
 
 			# Collect pit stop laps and tyre types
 			pit_laps = sorted([pit1_lap, pit2_lap, pit3_lap])[:num_pit_stops]
