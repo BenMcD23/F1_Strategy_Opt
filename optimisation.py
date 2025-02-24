@@ -4,6 +4,7 @@ import pandas as pd
 from race_sim import RaceSimulation
 
 from deap import base, creator, tools, algorithms
+from multiprocessing import Pool
 import random
 
 from scipy.optimize import dual_annealing
@@ -157,7 +158,7 @@ class Optimisation:
 
 	def genetic_algorithm_optimisation(self, given_driver, population_size=50, generations=50):
 		"""
-		Perform Genetic Algorithm optimisation to find the most optimal strategy for a given driver.
+		Perform Genetic Algorithm optimisation to find the top 10 strategies for a given driver.
 		"""
 		# Unique tyre types
 		unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
@@ -231,6 +232,9 @@ class Optimisation:
 		# Create the initial population
 		population = toolbox.population(n=population_size)
 		
+		# Use Hall of Fame to store the top 10 strategies
+		hof = tools.HallOfFame(10)
+		
 		# Run the genetic algorithm
 		print("Running Genetic Algorithm...")
 		stats = tools.Statistics(lambda ind: ind.fitness.values)
@@ -245,27 +249,35 @@ class Optimisation:
 			mutpb=0.2,  # Mutation probability
 			ngen=generations,
 			stats=stats,
+			halloffame=hof,  # Pass the Hall of Fame here
 			verbose=True
 		)
 		
-		# Extract the best strategy from the final population
-		best_individual = tools.selBest(population, k=1)[0]
-		starting_tyre, pit1_lap, pit1_tyre, pit2_lap, pit2_tyre, pit3_lap, pit3_tyre = best_individual
+		# Extract the top 10 strategies from the Hall of Fame
+		top_strategies = []
+		for individual in hof:
+			starting_tyre, pit1_lap, pit1_tyre, pit2_lap, pit2_tyre, pit3_lap, pit3_tyre = individual
+			
+			strategy = {
+				1: starting_tyre,
+				pit1_lap: pit1_tyre,
+				pit2_lap: pit2_tyre,
+				pit3_lap: pit3_tyre,
+			}
+			
+			# Simulate the race with the strategy to get the final position
+			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
+			sim_data = sim.simulate()
+			sim_df = pd.DataFrame(sim_data)
+			final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+			
+			# Store the strategy and its final position
+			top_strategies.append({
+				"strategy": strategy,
+				"final_position": final_position
+			})
 		
-		best_strategy = {
-			1: starting_tyre,
-			pit1_lap: pit1_tyre,
-			pit2_lap: pit2_tyre,
-			pit3_lap: pit3_tyre,
-		}
-		
-		# Simulate the race with the best strategy
-		sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=best_strategy)
-		sim_data = sim.simulate()
-		sim_df = pd.DataFrame(sim_data)
-		best_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
-		
-		return best_strategy, best_position
+		return top_strategies
 	
 	
 
