@@ -203,11 +203,17 @@ class Optimisation:
 				pit3_lap: pit3_tyre,
 			}
 			
+			# Extract the unique tyre types used in the strategy
+			used_tyres = {tyre for lap, tyre in strategy.items() if lap > 0 and tyre != 0}
+			
+			# Penalize strategies that use fewer than two unique tyre types
+			if len(used_tyres) < 2:
+				return (20,)  # Worst position as penalty
+
 			# Simulate the race with the strategy
 			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
 			sim_data = sim.simulate()
-			sim_df = pd.DataFrame(sim_data)
-			final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+			final_position = next(d["position"] for d in sim_data if d["driver_number"] == given_driver)
 			
 			return (final_position,)  # Return as a tuple for DEAP
 		
@@ -229,8 +235,54 @@ class Optimisation:
 		toolbox.register("mutate", mutate_strategy)
 		toolbox.register("select", tools.selTournament, tournsize=3)
 		
-		# Create the initial population
-		population = toolbox.population(n=population_size)
+		# Parse the initial strategy using initial_params
+		initial_strategy = self.race_data.driver_strategies[given_driver]
+		sorted_laps = sorted([lap for lap in initial_strategy.keys() if lap > 1])  # Sort pit stop laps
+		
+		initial_params = {
+			"start_tyre": initial_strategy[1],  # Starting tyre (lap 1)
+			"num_pit_stops": len(sorted_laps),  # Number of pit stops
+			"pit1_lap": sorted_laps[0] if len(sorted_laps) > 0 else 0,  # First pit stop lap
+			"pit2_lap": sorted_laps[1] if len(sorted_laps) > 1 else 0,  # Second pit stop lap
+			"pit3_lap": sorted_laps[2] if len(sorted_laps) > 2 else 0,  # Third pit stop lap
+			"pit1_tyre": initial_strategy[sorted_laps[0]] if len(sorted_laps) > 0 else 0,  # First pit stop tyre
+			"pit2_tyre": initial_strategy[sorted_laps[1]] if len(sorted_laps) > 1 else 0,  # Second pit stop tyre
+			"pit3_tyre": initial_strategy[sorted_laps[2]] if len(sorted_laps) > 2 else 0,  # Third pit stop tyre
+		}
+		
+		def create_initial_strategy():
+			"""
+			Create an individual based on the initial_params with slight variations.
+			"""
+			# Extract the initial strategy parameters
+			start_tyre = initial_params["start_tyre"]
+			pit1_lap = initial_params["pit1_lap"]
+			pit1_tyre = initial_params["pit1_tyre"]
+			pit2_lap = initial_params["pit2_lap"]
+			pit2_tyre = initial_params["pit2_tyre"]
+			pit3_lap = initial_params["pit3_lap"]
+			pit3_tyre = initial_params["pit3_tyre"]
+			
+			# Add slight variations to the initial strategy
+			return [
+				random.choice(unique_tyre_types) if random.random() < 0.2 else start_tyre,  # Starting tyre
+				random.randint(max(2, pit1_lap - 5), min(pit1_lap + 5, self.race_data.max_laps - 1)) if pit1_lap > 0 else 0,  # Pit1 lap
+				random.choice(unique_tyre_types) if random.random() < 0.2 else pit1_tyre if pit1_tyre != 0 else random.choice(unique_tyre_types),  # Pit1 tyre
+				random.randint(max(2, pit2_lap - 5), min(pit2_lap + 5, self.race_data.max_laps - 1)) if pit2_lap > 0 else 0,  # Pit2 lap
+				random.choice(unique_tyre_types) if random.random() < 0.2 else pit2_tyre if pit2_tyre != 0 else random.choice(unique_tyre_types),  # Pit2 tyre
+				random.randint(max(2, pit3_lap - 5), min(pit3_lap + 5, self.race_data.max_laps - 1)) if pit3_lap > 0 else 0,  # Pit3 lap
+				random.choice(unique_tyre_types) if random.random() < 0.2 else pit3_tyre if pit3_tyre != 0 else random.choice(unique_tyre_types),  # Pit3 tyre
+			]
+		
+		# Initialize part of the population with the initial strategy
+		initial_population_size = int(population_size * 0.2)  # 20% of the population
+		initial_population = [creator.Individual(create_initial_strategy()) for _ in range(initial_population_size)]
+		
+		# Fill the rest of the population with random strategies
+		random_population = toolbox.population(n=population_size - initial_population_size)
+		
+		# Combine the initial and random populations
+		population = initial_population + random_population
 		
 		# Use Hall of Fame to store the top 10 strategies
 		hof = tools.HallOfFame(10)
@@ -268,8 +320,7 @@ class Optimisation:
 			# Simulate the race with the strategy to get the final position
 			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=given_driver, simulated_strategy=strategy)
 			sim_data = sim.simulate()
-			sim_df = pd.DataFrame(sim_data)
-			final_position = sim_df[sim_df["driver_number"] == given_driver]["position"].iloc[-1]
+			final_position = next(d["position"] for d in sim_data if d["driver_number"] == given_driver)
 			
 			# Store the strategy and its final position
 			top_strategies.append({
@@ -278,7 +329,6 @@ class Optimisation:
 			})
 		
 		return top_strategies
-	
 	
 
 	def simulated_annealing_optimisation(self, given_driver):
