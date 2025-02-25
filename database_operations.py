@@ -80,7 +80,7 @@ class DatabaseOperations:
 		"""
 			
 		session_results = (
-			self.db_session.query(SessionResult.grid_pos, Driver.driver_num, SessionResult.end_status)
+			self.db_session.query(SessionResult.position, Driver.driver_num, SessionResult.end_status)
 			.join(Session, Session.session_id == SessionResult.session_id)
 			.join(Driver, Driver.driver_id == SessionResult.driver_id)
 			.filter(SessionResult.session_id == self.race_session_db.session_id)

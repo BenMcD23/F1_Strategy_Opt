@@ -24,7 +24,7 @@ class OvertakingModel:
 
 	def _train_overtaking_model(self):
 		# Prepare feature matrix (X) and target vector (y)
-		X = self.race_df[self.feature_names].values  # Convert to NumPy array immediately
+		X = self.race_df[self.feature_names].values 
 		y = self.race_df["overtaken"].values
 
 		# Handle missing values using the imputer

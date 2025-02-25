@@ -72,7 +72,7 @@ class RaceSimEvaluation:
         """
 		# Extract simulated final positions
 		sim_results = (
-			self.sim_df[self.sim_df["retired"] == False]  # Exclude retired drivers
+			self.sim_df[~self.sim_df["retired"]]  # Exclude retired drivers
 			.groupby("driver_number")["position"]
 			.last()
 			.to_dict()
@@ -126,12 +126,13 @@ class RaceSimEvaluation:
 		
 		# Extract actual final positions
 		actual_results = (
-			self.actual_race_df[self.actual_race_df["retired"] == False]  # Exclude retired drivers
+			self.actual_race_df  # Exclude retired drivers
 			.groupby("driver_number")["position"]
 			.last()
 			.to_dict()
 		)
-		
+			# actual_results = {driver_num: position for position, driver_num in session_results}
+
 		# Ensure both results have the same drivers
 		common_drivers = set(sim_results.keys()).intersection(actual_results.keys())
 		if not common_drivers:

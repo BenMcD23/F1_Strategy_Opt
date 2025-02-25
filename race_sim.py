@@ -62,9 +62,9 @@ class RaceSimulation:
 				"position": self.race_data.starting_positions[driver],
 				"starting_pos": self.race_data.starting_positions[driver],
 				"base_sector_times": self.race_data.base_sector_times[driver],
-				"tyre_diff": 0,  # Initialize tyre difference as 0
-				"stint_laps_diff": 0,  # Initialize stint laps difference as 0
-				"drs_available": False,  # Initialize DRS availability as False
+				"tyre_diff": 0,
+				"stint_laps_diff": 0,
+				"drs_available": False,
 				"retired": False,
 			})
 		return sim_data
@@ -123,6 +123,7 @@ class RaceSimulation:
 		"""
 		Process a single sector for all drivers.
 		"""
+
 		for d in self.sim_data:
 			if d["retired"]:
 				continue
@@ -157,8 +158,9 @@ class RaceSimulation:
 				else:
 					# Use the overall average pit time (key 0) if the driver doesn't have a specific pit time
 					d["cumulative_time"] += self.race_data.driver_pit_times[0]
-					d["stint_lap"] = 1
-				d["tyre_type"] = d["pit_schedule"][lap]
+
+				d["stint_lap"] = 1
+				d["tyre_type"] = d["pit_schedule"][lap]   # change tyre 
 			else:
 				d["pit"] = False
 
@@ -176,7 +178,7 @@ class RaceSimulation:
 		for d in self.sim_data:
 			if d["retired"]:
 				continue
-
+			d["drs_available"] = False
 			ahead_pos = d["position"] - 1
 			if ahead_pos > 0:
 				ahead_driver = next(a_d for a_d in active_drivers if a_d["position"] == ahead_pos)
@@ -193,19 +195,29 @@ class RaceSimulation:
 				d["gap"] = gap
 
 				# Calculate rolling pace
+				# sector_times = self.driver_pace_per_sec[d["driver_number"]][sector]
+				# d["pace"] = sum(sector_times) / len(sector_times) if sector_times else 0.0
+
 				sector_times = self.driver_pace_per_sec[d["driver_number"]][sector]
-				d["pace"] = sum(sector_times) / len(sector_times) if sector_times else 0.0
+				if len(sector_times) > 0:
+					# find average
+					rolling_pace = sum(sector_times) / len(sector_times)
+				else:
+					rolling_pace = 0.0  # Default value if no sector times are available yet
+
+				d["pace"] = rolling_pace
 
 				# Update other features
 				d["tyre_diff"] = ahead_driver["tyre_type"] - d["tyre_type"]
 				d["stint_laps_diff"] = ahead_driver["stint_lap"] - d["stint_lap"]
-				d["drs_available"] = True
+				if gap < 0:
+					d["drs_available"] = True
 			else:
 				d["gap"] = 0
 
 		# Predict overtakes
 		active_drivers = [d for d in self.sim_data if not d["retired"]]
-		
+
 		predicted_overtakes = self.overtake_model.handle_overtake_prediction(active_drivers)
 
 		# can use active_drivers and dicts are mutable
