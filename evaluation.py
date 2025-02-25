@@ -186,7 +186,7 @@ class RaceSimEvaluation:
 
 		# Get the list of retired drivers
 		retired_drivers = _get_retired_drivers()
-		print(retired_drivers)
+
 		# Simulated data
 		sim_leader_time = (
 			self.sim_df[self.sim_df["position"] == 1]  # Leader (first position)
@@ -231,7 +231,7 @@ class RaceSimEvaluation:
 			.max()
 			.apply(lambda x: x - actual_leader_time)
 		)
-		
+
 		total_actual_gap = actual_gaps_to_front.sum()
 		# Return the total gaps
 		return {

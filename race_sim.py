@@ -39,7 +39,7 @@ class RaceSimulation:
 		# Track overtakes
 		self.num_overtakes = 0
 		self.has_safety_car = bool(self.race_data.safety_car_laps)
-		print(self.race_data.safety_car_laps)
+
 	def _initialize_drivers_data(self):
 		"""
 		Initialize the data structure for each driver.
@@ -131,8 +131,6 @@ class RaceSimulation:
 
 			d["sector"] = sector
 
-			# print(f"Tyre: {d['tyre_type']}")
-			# print(f"Sec: {sector}")
 			# Calculate sector time based on tyre degradation, fuel correction, and safety car penalty
 			a, b, c = self.race_data.driver_tyre_coefficients[d["driver_number"]][d["tyre_type"]][sector]
 			sector_time = (
@@ -154,7 +152,6 @@ class RaceSimulation:
 			if sector == 1 and lap in d["pit_schedule"]:
 				if lap == 1:
 					continue
-					# print("jkndjnkaw")
 				d["pit"] = True
 				if d["driver_number"] in self.race_data.driver_pit_times:
 					# Add the driver's specific pit time if available
@@ -199,9 +196,6 @@ class RaceSimulation:
 				d["gap"] = gap
 
 				# Calculate rolling pace
-				# sector_times = self.driver_pace_per_sec[d["driver_number"]][sector]
-				# d["pace"] = sum(sector_times) / len(sector_times) if sector_times else 0.0
-
 				sector_times = self.driver_pace_per_sec[d["driver_number"]][sector]
 				if len(sector_times) > 0:
 					# find average

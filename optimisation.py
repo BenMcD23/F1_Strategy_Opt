@@ -20,7 +20,7 @@ class Optimisation:
 		self.given_driver = given_driver
 		self.unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
 
-	def _map_to_nearest_tyre(self, value):		
+	def _map_to_nearest_tyre(self, value):
 		# Find the closest tyre type by minimizing the absolute difference
 		closest_tyre = min(self.unique_tyre_types, key=lambda tyre: abs(tyre - value))
 		
@@ -46,7 +46,7 @@ class Optimisation:
 			"pit3_tyre": (1, 3),
 		}
 
-		# Step 3: Define the objective function for Bayesian optimisation
+		# Define the objective function for Bayesian optimisation
 		def objective_function(start_tyre, num_pit_stops, pit1_lap, pit2_lap, pit3_lap, pit1_tyre, pit2_tyre, pit3_tyre):
 			# Map continuous values to discrete tyre types
 			start_tyre = self._map_to_nearest_tyre(start_tyre)
@@ -55,7 +55,7 @@ class Optimisation:
 			pit3_tyre = self._map_to_nearest_tyre(pit3_tyre)
 			
 			# Determine the number of pit stops
-			num_pit_stops = int(num_pit_stops)  # Convert to integer
+			num_pit_stops = int(num_pit_stops)
 			
 			# Collect pit stop laps and tyre types
 			pit_laps = sorted([int(pit1_lap), int(pit2_lap), int(pit3_lap)])[:num_pit_stops]
@@ -64,13 +64,13 @@ class Optimisation:
 			# Construct the strategy dictionary
 			strategy = {1: start_tyre}  # Starting tyre
 			for lap, tyre in zip(pit_laps, pit_tyres):
-				if 2 <= lap < self.race_data.max_laps:  # Only include valid pit laps
+				if 2 <= lap < self.race_data.max_laps:  # Can't pit after race is finished
 					strategy[lap] = tyre
 			
-			# Enforce F1 rule: At least two distinct tyre types must be used
+			# Enforce F1 rule - At least two distinct tyre types must be used
 			tyre_types_used = set(strategy.values())
 			if len(tyre_types_used) < 2:
-				return -20.0  # Penalize strategies that violate F1 rules
+				return -20.0  # Penalize strategies that violate rules
 			
 			# Evaluate the strategy using the race simulation
 			try:
@@ -82,7 +82,7 @@ class Optimisation:
 				print(f"Error during simulation: {e}")
 				return -20.0  # Penalize errors
 			
-		# Step 4: Initialize the Bayesian optimiser
+		# Initialize the Bayesian optimiser
 		optimiser = BayesianOptimization(
 			f=objective_function,
 			pbounds=pbounds,
@@ -110,28 +110,8 @@ class Optimisation:
 		
 		optimiser.maximize(init_points=5, n_iter=max_iterations)
 		
-		# Step 7: Extract the best strategy from the optimiser
-		best_params = optimiser.max["params"]
-		best_start_tyre = self._map_to_nearest_tyre(best_params["start_tyre"])
-		best_num_pit_stops = int(best_params["num_pit_stops"])
-		
-		# Collect pit stop laps and tyre types based on the number of pit stops
-		# Extract pit stop laps and tyre types based on the number of pit stops
-		pit_laps = sorted([int(best_params["pit1_lap"]), int(best_params["pit2_lap"]), int(best_params["pit3_lap"])])[:best_num_pit_stops]
-		pit_tyres = [
-			self._map_to_nearest_tyre(best_params["pit1_tyre"]),
-			self._map_to_nearest_tyre(best_params["pit2_tyre"]),
-			self._map_to_nearest_tyre(best_params["pit3_tyre"])
-		][:best_num_pit_stops]
 
-		# Construct the best strategy dictionary
-		best_strategy = {1: best_start_tyre}  # Starting tyre
-		for lap, tyre in zip(pit_laps, pit_tyres):
-			if 2 <= lap < self.race_data.max_laps:  # Only include valid pit laps
-				best_strategy[lap] = tyre
-
-		# Evaluate the best strategy to get the finishing position
-
+		# Get the top 10 strategies from the runs
 		top_10_runs = sorted(optimiser.res, key=lambda x: x["target"], reverse=True)[:10]
 		top_10_strategies = []
 		for run in top_10_runs:
@@ -317,7 +297,7 @@ class Optimisation:
 				pit3_lap: pit3_tyre,
 			}
 			
-			# Simulate the race with the strategy to get the final position
+			# Simulate the race with the strategy to get the final position - HOF doesn't save result
 			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=self.given_driver, simulated_strategy=strategy)
 			sim_data = sim.simulate()
 			final_position = next(d["position"] for d in sim_data if d["driver_number"] == self.given_driver)

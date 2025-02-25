@@ -16,7 +16,7 @@ class DatabaseOperations:
 	def init_db(cls):
 		if cls._Session is None:
 			Base = declarative_base()
-			cls._engine = create_engine('sqlite:////home/ben/Individual_Project/DB/f1_data_V4.db')
+			cls._engine = create_engine('sqlite:////home/ben/Individual_Project/DB/f1_data.db')
 			cls._Session = sessionmaker(bind=cls._engine)
 			Base.metadata.create_all(cls._engine)
 

@@ -100,9 +100,9 @@ class RaceDataSetup:
 		
 		# Define minimum laps required for each tyre type
 		min_laps_by_tyre = {
-			1: 0,  # Soft
-			2: 0,  # Med
-			3: 0   # Hard
+			1: 2,  # Soft
+			2: 4,  # Med
+			3: 6   # Hard
 		}
 
 		# Dictionary to store tyre coefficients for each driver
