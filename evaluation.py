@@ -4,11 +4,11 @@ class RaceSimEvaluation:
 	def __init__(self, race_sim_obj, race_df_obj, database_obj):
 		"""Initializes the RaceSimEvaluation object.
 
-        Args:
-            race_sim_obj: Object of RaceSimulation class
-            race_df_obj: Object of RaceDataframe class - this is the actual race dataframe
-            database_obj: Object of class DatabaseOperations class
-        """
+		Args:
+			race_sim_obj: Object of RaceSimulation class
+			race_df_obj: Object of RaceDataframe class - this is the actual race dataframe
+			database_obj: Object of class DatabaseOperations class
+		"""
 
 		self.race_sim_obj = race_sim_obj
 		self.race_df_obj = race_df_obj
@@ -20,9 +20,9 @@ class RaceSimEvaluation:
 	def compare_total_cumulative_times(self):
 		"""Compares the total cumulative times between simulated and actual race data
 
-        Returns:
-            tuple: A DataFrame with comparison results for each driver and the total Mean Absolute Error (MAE)
-        """
+		Returns:
+			tuple: A DataFrame with comparison results for each driver and the total Mean Absolute Error (MAE)
+		"""
 		comparison_results = []
 			
 		# Get unique drivers from the simulated DataFrame
@@ -64,12 +64,12 @@ class RaceSimEvaluation:
 		""" Evaluates the accuracy of the simulated results against the actual final classification results,
 			this is after any penalties have been applied
 
-        Raises:
-            ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
+		Raises:
+			ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
 
-        Returns:
-            dict: Some metrics
-        """
+		Returns:
+			dict: Some metrics
+		"""
 		# Extract simulated final positions
 		sim_results = (
 			self.sim_df[~self.sim_df["retired"]]  # Exclude retired drivers
@@ -110,12 +110,12 @@ class RaceSimEvaluation:
 		""" Evaluates the accuracy of the simulated results against the results at the end of the race,
 			probably a more fair comparison
 
-        Raises:
-            ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
+		Raises:
+			ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
 
-        Returns:
-            dict: Some metrics
-        """
+		Returns:
+			dict: Some metrics
+		"""
 		# Extract simulated final positions
 		sim_results = (
 			self.sim_df[self.sim_df["retired"] == False]  # Exclude retired drivers
@@ -186,7 +186,7 @@ class RaceSimEvaluation:
 
 		# Get the list of retired drivers
 		retired_drivers = _get_retired_drivers()
-
+		print(retired_drivers)
 		# Simulated data
 		sim_leader_time = (
 			self.sim_df[self.sim_df["position"] == 1]  # Leader (first position)
@@ -194,29 +194,45 @@ class RaceSimEvaluation:
 			.max()
 			.min()
 		)
+
 		sim_gaps_to_front = (
 			self.sim_df[~self.sim_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.apply(lambda x: x - sim_leader_time)
 		)
+
 		total_sim_gap = sim_gaps_to_front.sum()
 
-		# Actual data
+		# All the laps which non retired drivers did
+		driver_laps = self.actual_race_df[~self.actual_race_df["driver_number"].isin(retired_drivers)].groupby('driver_number')['lap_num'].apply(set)
+		
+		# Find the intersection of all lap sets (common laps across all drivers)
+		common_laps = set.intersection(*driver_laps)
+
+		# Return the largest common lap number
+		max_common_lap = max(common_laps) if common_laps else None
+
 		actual_leader_time = (
-			self.actual_race_df[self.actual_race_df["position"] == 1]  # Leader (first position)
+			self.actual_race_df[
+				(self.actual_race_df["lap_num"] == max_common_lap) &  # Filter by max common lap as some drivers may do more than others
+				(self.actual_race_df["position"] == 1)]  # Leader (first position)
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.min()
 		)
+
 		actual_gaps_to_front = (
-			self.actual_race_df[~self.actual_race_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
+			self.actual_race_df[
+				(self.actual_race_df["lap_num"] == max_common_lap) &   # Filter by max common lap as some drivers may do more than others
+				(~self.actual_race_df["driver_number"].isin(retired_drivers))  # Exclude retired drivers
+			]
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.apply(lambda x: x - actual_leader_time)
 		)
+		
 		total_actual_gap = actual_gaps_to_front.sum()
-
 		# Return the total gaps
 		return {
 			"total_simulated_gap_to_front": total_sim_gap,
@@ -226,90 +242,90 @@ class RaceSimEvaluation:
 
 
 class EvaluateMany:
-    def __init__(self):
-        """ Initialize the EvaluateMany class.
-        """
-        self.race_evaluations = []  # List to store individual RaceSimEvaluation objects
-        self.results = []           # List to store evaluation results for each race
+	def __init__(self):
+		""" Initialize the EvaluateMany class.
+		"""
+		self.race_evaluations = []  # List to store individual RaceSimEvaluation objects
+		self.results = []           # List to store evaluation results for each race
 
-    def add_race(self, race_sim_obj, race_df_obj, database_obj):
-        """ Add a race to the evaluation pipeline.
+	def add_race(self, race_sim_obj, race_df_obj, database_obj):
+		""" Add a race to the evaluation pipeline.
 
-        Args:
-            race_sim_obj: The RaceSimulation object for the race.
-            race_df_obj: The RaceDataframe object for the race.
-            database_obj: The DatabaseOperations object for the race.
-        """
-        # Create a RaceSimEvaluation object for the race
-        race_evaluation = RaceSimEvaluation(race_sim_obj, race_df_obj, database_obj)
-        self.race_evaluations.append(race_evaluation)
+		Args:
+			race_sim_obj: The RaceSimulation object for the race.
+			race_df_obj: The RaceDataframe object for the race.
+			database_obj: The DatabaseOperations object for the race.
+		"""
+		# Create a RaceSimEvaluation object for the race
+		race_evaluation = RaceSimEvaluation(race_sim_obj, race_df_obj, database_obj)
+		self.race_evaluations.append(race_evaluation)
 
-    def evaluate_all_races(self):
-        """ Evaluate all added races and store their results.
-        """
-        for i, race_evaluation in enumerate(self.race_evaluations):
-            print(f"Evaluating race {i + 1}...")
-            # Perform evaluations for each metric
-            cumulative_times = race_evaluation.compare_total_cumulative_times()
-            position_accuracy = race_evaluation.get_position_accuracy_final_class()
-            total_to_front = race_evaluation.compare_total_to_front()
+	def evaluate_all_races(self):
+		""" Evaluate all added races and store their results.
+		"""
+		for i, race_evaluation in enumerate(self.race_evaluations):
+			print(f"Evaluating race {i + 1}...")
+			# Perform evaluations for each metric
+			cumulative_times = race_evaluation.compare_total_cumulative_times()
+			position_accuracy = race_evaluation.get_position_accuracy_final_class()
+			total_to_front = race_evaluation.compare_total_to_front()
 
-            # Store the results
-            self.results.append({
-                "cumulative_times": cumulative_times,
-                "position_accuracy": position_accuracy,
-                "total_to_front": total_to_front,
-            })
+			# Store the results
+			self.results.append({
+				"cumulative_times": cumulative_times,
+				"position_accuracy": position_accuracy,
+				"total_to_front": total_to_front,
+			})
 
-    def get_aggregated_results(self):
-        """ Aggregate results across all races and calculate averages.
+	def get_aggregated_results(self):
+		""" Aggregate results across all races and calculate averages.
 
-        Returns:
-            dict: Aggregated results with averages for each metric.
-        """
-        if not self.results:
-            raise ValueError("No races have been evaluated yet.")
+		Returns:
+			dict: Aggregated results with averages for each metric.
+		"""
+		if not self.results:
+			raise ValueError("No races have been evaluated yet.")
 
-        # Initialize aggregated metrics
-        total_mae = 0
-        total_position_accuracy = 0
-        total_top_3_accuracy = 0
-        total_mean_error = 0
-        total_total_error = 0
-        total_simulated_gap_to_front = 0
-        total_actual_gap_to_front = 0
-        num_races = len(self.results)
+		# Initialize aggregated metrics
+		total_mae = 0
+		total_position_accuracy = 0
+		total_top_3_accuracy = 0
+		total_mean_error = 0
+		total_total_error = 0
+		total_simulated_gap_to_front = 0
+		total_actual_gap_to_front = 0
+		num_races = len(self.results)
 		
-        for result in self.results:
-            # Cumulative times
-            total_mae += result["cumulative_times"][1]  # Extract MAE from the tuple
+		for result in self.results:
+			# Cumulative times
+			total_mae += result["cumulative_times"][1]  # Extract MAE from the tuple
 
-            # Position accuracy
-            total_position_accuracy += result["position_accuracy"]["position_accuracy"]
-            total_top_3_accuracy += result["position_accuracy"]["top_3_accuracy"]
-            total_mean_error += result["position_accuracy"]["mean_error"]
-            total_total_error += result["position_accuracy"]["total_error"]
+			# Position accuracy
+			total_position_accuracy += result["position_accuracy"]["position_accuracy"]
+			total_top_3_accuracy += result["position_accuracy"]["top_3_accuracy"]
+			total_mean_error += result["position_accuracy"]["mean_error"]
+			total_total_error += result["position_accuracy"]["total_error"]
 
-            # Total gaps to front
-            total_simulated_gap_to_front += result["total_to_front"]["total_simulated_gap_to_front"]
-            total_actual_gap_to_front += result["total_to_front"]["total_actual_gap_to_front"]
+			# Total gaps to front
+			total_simulated_gap_to_front += result["total_to_front"]["total_simulated_gap_to_front"]
+			total_actual_gap_to_front += result["total_to_front"]["total_actual_gap_to_front"]
 
-        # Calculate averages
-        avg_mae = total_mae / num_races
-        avg_position_accuracy = total_position_accuracy / num_races
-        avg_top_3_accuracy = total_top_3_accuracy / num_races
-        avg_mean_error = total_mean_error / num_races
-        avg_total_error = total_total_error / num_races
-        avg_simulated_gap_to_front = total_simulated_gap_to_front / num_races
-        avg_actual_gap_to_front = total_actual_gap_to_front / num_races
+		# Calculate averages
+		avg_mae = total_mae / num_races
+		avg_position_accuracy = total_position_accuracy / num_races
+		avg_top_3_accuracy = total_top_3_accuracy / num_races
+		avg_mean_error = total_mean_error / num_races
+		avg_total_error = total_total_error / num_races
+		avg_simulated_gap_to_front = total_simulated_gap_to_front / num_races
+		avg_actual_gap_to_front = total_actual_gap_to_front / num_races
 
-        # Return aggregated results
-        return {
-            "average_mae": avg_mae,
-            "average_position_accuracy": avg_position_accuracy,
-            "average_top_3_accuracy": avg_top_3_accuracy,
-            "average_mean_error": avg_mean_error,
-            "average_total_error": avg_total_error,
-            "average_simulated_gap_to_front": avg_simulated_gap_to_front,
-            "average_actual_gap_to_front": avg_actual_gap_to_front,
-        }
+		# Return aggregated results
+		return {
+			"average_mae": avg_mae,
+			"average_position_accuracy": avg_position_accuracy,
+			"average_top_3_accuracy": avg_top_3_accuracy,
+			"average_mean_error": avg_mean_error,
+			"average_total_error": avg_total_error,
+			"average_simulated_gap_to_front": avg_simulated_gap_to_front,
+			"average_actual_gap_to_front": avg_actual_gap_to_front,
+		}
