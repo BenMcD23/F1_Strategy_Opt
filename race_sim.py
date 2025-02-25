@@ -38,7 +38,8 @@ class RaceSimulation:
 
 		# Track overtakes
 		self.num_overtakes = 0
-
+		self.has_safety_car = bool(self.race_data.safety_car_laps)
+		print(self.race_data.safety_car_laps)
 	def _initialize_drivers_data(self):
 		"""
 		Initialize the data structure for each driver.
@@ -151,6 +152,9 @@ class RaceSimulation:
 
 			# Handle pit stops at the start of a lap (sector 1)
 			if sector == 1 and lap in d["pit_schedule"]:
+				if lap == 1:
+					continue
+					# print("jkndjnkaw")
 				d["pit"] = True
 				if d["driver_number"] in self.race_data.driver_pit_times:
 					# Add the driver's specific pit time if available
@@ -210,7 +214,7 @@ class RaceSimulation:
 				# Update other features
 				d["tyre_diff"] = ahead_driver["tyre_type"] - d["tyre_type"]
 				d["stint_laps_diff"] = ahead_driver["stint_lap"] - d["stint_lap"]
-				if gap < 0:
+				if gap < 1:
 					d["drs_available"] = True
 			else:
 				d["gap"] = 0

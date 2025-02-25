@@ -89,101 +89,62 @@ class RaceDataframe:
 
 		return race_df
 	
-	def _add_race_data(self, df):
+	def _add_race_data(self, race_df):
 		"""Adds extra info the race dataframe such as gaps and info for overtakes. Added to train the overtake model
 
 		Returns:
 			Pandas DF: _description_
 		"""
-		df["cumulative_time"] = df.groupby("driver_name")["sector_time"].cumsum()
+		race_df["cumulative_time"] = race_df.groupby("driver_name")["sector_time"].cumsum()
 	
 		# Calculate rolling pace (average lap time over the last 5 laps)
-		df["pace"] = (
-			df.groupby(["driver_name", "sector"])["sector_time"]
+		race_df["pace"] = (
+			race_df.groupby(["driver_name", "sector"])["sector_time"]
 			.rolling(window=5, min_periods=1)
 			.mean()
 			.reset_index(level=[0, 1], drop=True)
 		)
 
 		# Get car ahead"s cumulative time (car immediately ahead in position for each lap)
-		df["front_cumulative_time"] = df.groupby(["lap_num", "sector"])["cumulative_time"].shift(1)
+		race_df["front_cumulative_time"] = race_df.groupby(["lap_num", "sector"])["cumulative_time"].shift(1)
 		# This gap is calculated only for drivers who are not in the lead position (position > 1)
-		df["gap"] = df["cumulative_time"] - df["front_cumulative_time"]
-		df["gap"] = df["gap"].fillna(0)  # Leader has no car ahead, so gap is 0
+		race_df["gap"] = race_df["cumulative_time"] - race_df["front_cumulative_time"]
+		race_df["gap"] = race_df["gap"].fillna(0)  # Leader has no car ahead, so gap is 0
 
 		# Calculate tyre difference (compared to car immediately ahead in THIS Sector)
-		df["front_tyre"] = df.groupby(["lap_num", "sector"])["tyre_type"].shift(1)
-		df["tyre_diff"] = df["front_tyre"] - df["tyre_type"]
-		df["tyre_diff"] = df["tyre_diff"].fillna(0)  # Leader has no car ahead
+		race_df["front_tyre"] = race_df.groupby(["lap_num", "sector"])["tyre_type"].shift(1)
+		race_df["tyre_diff"] = race_df["front_tyre"] - race_df["tyre_type"]
+		race_df["tyre_diff"] = race_df["tyre_diff"].fillna(0)  # Leader has no car ahead
 
 		# Calculate tyre age difference (compared to car immediately ahead in THIS Sector)
-		df["front_laps"] = df.groupby(["lap_num", "sector"])["stint_lap"].shift(1)
-		df["stint_laps_diff"] = df["front_laps"] - df["stint_lap"]
-		df["stint_laps_diff"] = df["stint_laps_diff"].fillna(0)  # Leader has no car ahead
+		race_df["front_laps"] = race_df.groupby(["lap_num", "sector"])["stint_lap"].shift(1)
+		race_df["stint_laps_diff"] = race_df["front_laps"] - race_df["stint_lap"]
+		race_df["stint_laps_diff"] = race_df["stint_laps_diff"].fillna(0)  # Leader has no car ahead
 
 		# Calculate DRS availability (within 1s of car ahead IN THIS Sector)
-		df["drs_available"] = (
-			(df["gap"] <= 1) &
-			(df["position"] > 1) &
-			(df["lap_num"] > 1)
+		race_df["drs_available"] = (
+			(race_df["gap"] <= 1) &
+			(race_df["position"] > 1) &
+			(race_df["lap_num"] > 1)
 		)
-
-
-		# df["next_position"] = df.groupby("driver_name")["position"].shift(1) 
-		# df["overtaken"] = ((df["next_position"] < df["position"]) | 
-		# 				  (df["next_position"].isna()))
-
 
 		# Shift the "position" and "pit" columns
-		df["next_position"] = df.groupby("driver_name")["position"].shift(1)
-		df["next_pit"] = df.groupby("driver_name")["pit"].shift(-1)
+		race_df["next_position"] = race_df.groupby("driver_name")["position"].shift(1)
+		race_df["next_pit"] = race_df.groupby("driver_name")["pit"].shift(-1)
 
 		# Handle NaN values in 'next_pit' by filling them with False
-		df["next_pit"] = df["next_pit"].fillna(False)
+		race_df["next_pit"] = race_df["next_pit"].fillna(False)
 
 		# Define the "overtaken" column
-		df["overtaken"] = (
-			((df["next_position"] < df["position"]) | (df["next_position"].isna()))  # Original condition
-			& (~df["next_pit"])  # Ensure the driver in the next position is not pitting
+		race_df["overtaken"] = (
+			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))  # Original condition
+			& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
 		)
 
-		# # Create target variable for overtaking model)
-		# # Step 1: Detect position improvement on the next sector
-		# df.loc[:, "next_position"] = df.groupby("driver_name")["position"].shift(-1)
-		# df.loc[:, "position_improved"] = (
-		# 	(df["next_position"] < df["position"]) |  # Position improved
-		# 	(df["next_position"].isna())  # Handle NaN values
-		# )
-
-		# # Step 2: Identify the sector with the minimum gap for each driver and lap
-		# df.loc[:, "min_gap_sector"] = df[df["position_improved"]].groupby(["driver_name", "lap_num"])["gap"].transform("idxmin")
-
-		# # Step 3: Propagate the overtaken flag to the sector with the minimum gap
-		# df.loc[:, "overtaken"] = False  # Initialize the overtake flag
-		# for idx in df[df["position_improved"]].index:
-		# 	driver = df.loc[idx, "driver_name"]
-		# 	lap = df.loc[idx, "lap_num"]
-			
-		# 	# Find the sector with the minimum gap for this driver and lap
-		# 	min_gap_idx = df.loc[
-		# 		(df["driver_name"] == driver) & 
-		# 		(df["lap_num"] == lap) & 
-		# 		(df["position_improved"]), "min_gap_sector"
-		# 	].iloc[0]
-			
-		# 	# Set the overtaken flag only for the sector with the minimum gap
-		# 	if idx == min_gap_idx:
-		# 		df.loc[idx, "overtaken"] = True
-
-		# # Cleanup intermediate columns
-		# df = df.drop(columns=["position_improved", "min_gap_sector"], errors="ignore")
-		
-
 		# Cleanup and final sorting
-		df = df.drop(columns=["front_cumulative_time", "front_tyre", "next_position"])
-		# df = df.sort_values(["lap_num", "sector", "position"]).reset_index(drop=True)
+		race_df = race_df.drop(columns=["front_cumulative_time", "front_tyre", "next_position"])
 
-		return df
+		return race_df
 	
 	def _get_race_df(self):
 		raw_df = self._get_raw_race_df()
