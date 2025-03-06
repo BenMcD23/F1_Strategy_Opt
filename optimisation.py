@@ -6,6 +6,7 @@ from deap import base, creator, tools, algorithms
 import random
 
 from scipy.optimize import dual_annealing
+from scipy.optimize import minimize
 
 import math
 class Optimisation:
@@ -422,8 +423,84 @@ class Optimisation:
 		top_10_strategies = unique_strategies[:10]
 
 		return top_10_strategies
+
 	
 
+
+	def powell(self, max_iterations=50, initial_strategy=None):
+		# Use the provided initial strategy or fall back to the default one
+		if initial_strategy is None:
+			initial_strategy = self.initial_strategy
+
+		bounds = [
+			(1, 3),  # starting tyre selection
+			(1, 3),  # Number of pit stops (1 to 3)
+			(2, self.race_data.max_laps - 1),  # 1st pit stop lap
+			(2, self.race_data.max_laps - 1),  # 2md pit stop lap
+			(2, self.race_data.max_laps - 1),  # 3rd pit stop lap
+			(1, 3),  # 1st pit stop tyre
+			(1, 3),  # 2nd pit stop tyre
+			(1, 3),  # 3rd pit stop tyre
+		]
+
+		# List to store all evaluated strategies and their final positions
+		evaluated_strategies = []
+
+		# Define the objective function
+		def objective_function(params):
+			# Map continuous values to discrete tyre types
+			start_tyre = self._map_to_nearest_tyre(params[0])
+			num_pit_stops = int(params[1])
+			pit_laps = sorted([int(params[2]), int(params[3]), int(params[4])])[:num_pit_stops]
+			pit_tyres = [self._map_to_nearest_tyre(params[5]), self._map_to_nearest_tyre(params[6]), self._map_to_nearest_tyre(params[7])][:num_pit_stops]
+
+			# Construct the strategy dictionary
+			strategy = {1: start_tyre}  # Starting tyre
+			for lap, tyre in zip(pit_laps, pit_tyres):
+				if lap > 1 and tyre != 0:  # Ensure valid pit stops
+					strategy[lap] = tyre
+
+			# Simulate the race with the strategy
+			sim = RaceSimulation(self.race_data, self.overtake_model, given_driver=self.given_driver, simulated_strategy=strategy)
+			sim_data = sim.simulate()
+			final_position = next(d["position"] for d in sim_data if d["driver_number"] == self.given_driver)
+
+			# add the strategy and the position
+			evaluated_strategies.append({
+				"strategy": strategy,
+				"final_position": final_position
+			})
+
+			return final_position  # Minimize finishing position
+
+		# Initial guess based on the provided or default initial strategy
+		sorted_laps = sorted([lap for lap in initial_strategy.keys() if lap > 1])  # Sort pit stop laps
+		initial_guess = [
+			initial_strategy[1],  # Starting tyre
+			len(sorted_laps),     # Number of pit stops
+			sorted_laps[0] if len(sorted_laps) > 0 else 2,  # 1st pit stop lap
+			sorted_laps[1] if len(sorted_laps) > 1 else 2,  # 2nd pit stop lap
+			sorted_laps[2] if len(sorted_laps) > 2 else 2,  # 3rd pit stop lap
+			initial_strategy[sorted_laps[0]] if len(sorted_laps) > 0 else 1,  # 1st pit stop tyre
+			initial_strategy[sorted_laps[1]] if len(sorted_laps) > 1 else 1,  # 2nd pit stop tyre
+			initial_strategy[sorted_laps[2]] if len(sorted_laps) > 2 else 1,  # 3rd pit stop tyre
+		]
+
+		result = minimize(
+			fun=objective_function,
+			x0=initial_guess,
+			bounds=bounds,
+			method="Powell",  # Similar to Hooke and Jeeves
+			options={"maxiter": max_iterations}
+		)
+
+		# Sort the evaluated strategies by final position (lower is better)
+		top_strategies = sorted(evaluated_strategies, key=lambda x: x["final_position"])[:10]
+
+		return {
+			"top_strategies": top_strategies
+		}
+		
 
 
 	def monte_carlo_tree_search(self, max_iterations=100, exploration_weight=1.414):
