@@ -7,10 +7,9 @@ import numpy as np
 
 class OvertakingModel:
 	def __init__(self, race_df):
-		self.race_df = race_df
+		self.__race_df = race_df
 		self.feature_names = [
 			"gap",
-			"sector",
 			"tyre_diff",
 			"stint_laps_diff",
 			"drs_available",
@@ -19,16 +18,16 @@ class OvertakingModel:
 			"pace",
 			"pit"
 		]
-		self.imputer = SimpleImputer(strategy='mean')  # Imputer for missing values
-		self.model = self._train_overtaking_model()
+		self.__imputer = SimpleImputer(strategy='mean')  # Imputer for missing values
+		self.__model = self.__train_overtaking_model()
 
-	def _train_overtaking_model(self):
+	def __train_overtaking_model(self):
 		# Prepare feature matrix (X) and target vector (y)
-		X = self.race_df[self.feature_names].values 
-		y = self.race_df["overtaken"].values
+		X = self.__race_df[self.feature_names].values 
+		y = self.__race_df["overtaken"].values
 
 		# Handle missing values using the imputer
-		X = self.imputer.fit_transform(X)
+		X = self.__imputer.fit_transform(X)
 
 		# Resample the data using SMOTE
 		smote = SMOTE(random_state=42)
@@ -85,10 +84,10 @@ class OvertakingModel:
 		], dtype=float)  # Ensure the array is of type float
 
 		# Handle missing values using the same imputer used during training
-		data_filled = self.imputer.transform(data)
+		data_filled = self.__imputer.transform(data)
 
 		# Make predictions using the trained model
-		predictions = self.model.predict(data_filled)
+		predictions = self.__model.predict(data_filled)
 		return predictions
 
 	def handle_overtake_prediction(self, driver_data):
@@ -99,8 +98,8 @@ class OvertakingModel:
 	
 	def get_model_accuracy(self):
 		# Split the data into features and target
-		X_test = self.race_df[self.feature_names].values
-		y_test = self.race_df["overtaken"].values
+		X_test = self.__race_df[self.feature_names].values
+		y_test = self.__race_df["overtaken"].values
 
 		# Predict overtakes
 		predicted_overtakes = self.predict_overtake(X_test)

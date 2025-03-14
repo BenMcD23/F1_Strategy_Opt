@@ -17,41 +17,41 @@ from collections import deque
 import pandas as pd
 
 
-class RaceSimulation:
+class RaceSimulator:
 	def __init__(self, race_data, overtake_model, given_driver=None, simulated_strategy=None):
-		self.race_data = race_data      # a RaceDataSetup object
-		self.overtake_model = overtake_model    # a OvertakingModel object
+		self.__race_data = race_data      # a RaceDataSetup object
+		self.__overtake_model = overtake_model    # a OvertakingModel object
 
 
 		# Update strategies if a specific driver and strategy are provided
 		if given_driver and simulated_strategy:
-			self.race_data.driver_strategies[given_driver] = simulated_strategy
+			self.__race_data.driver_strategies[given_driver] = simulated_strategy
 
 		# Initialize drivers' data
-		self.sim_data = self._initialize_drivers_data()
+		self.sim_data = self.__initialize_drivers_data()
 
 		# Rolling pace tracking
-		self.driver_pace_per_sec = {
+		self.__driver_pace_per_sec = {
 			driver: {sector: deque(maxlen=5) for sector in range(1, 4)}  # Sectors 1, 2, 3
-			for driver in self.race_data.drivers
+			for driver in self.__race_data.drivers
 		}
 
 		# Track overtakes
 		self.num_overtakes = 0
-		self.has_safety_car = bool(self.race_data.safety_car_laps)
+		self.has_safety_car = bool(self.__race_data.safety_car_laps)
 
-	def _initialize_drivers_data(self):
+	def __initialize_drivers_data(self):
 		"""
 		Initialize the data structure for each driver.
 		"""
 		sim_data = []
-		for driver in self.race_data.drivers:
+		for driver in self.__race_data.drivers:
 			sim_data.append({
 				"driver_number": driver,
-				"driver_name": self.race_data.driver_names[driver],
-				# "pit_schedule": {key: value for key, value in self.race_data.driver_strategies[driver].items() if key != 1},
-				"pit_schedule": self.race_data.driver_strategies[driver],
-				"tyre_type": self.race_data.driver_strategies[driver][1],
+				"driver_name": self.__race_data.driver_names[driver],
+				# "pit_schedule": {key: value for key, value in self.__race_data.driver_strategies[driver].items() if key != 1},
+				"pit_schedule": self.__race_data.driver_strategies[driver],
+				"tyre_type": self.__race_data.driver_strategies[driver][1],
 				"lap_num": 0,
 				"sector": 0,
 				"sector_time": 0.0,
@@ -60,9 +60,9 @@ class RaceSimulation:
 				"gap": 0.0,
 				"pit": False,
 				"pace": 0,
-				"position": self.race_data.starting_positions[driver],
-				"starting_pos": self.race_data.starting_positions[driver],
-				"base_sector_times": self.race_data.base_sector_times[driver],
+				"position": self.__race_data.starting_positions[driver],
+				"starting_pos": self.__race_data.starting_positions[driver],
+				"base_sector_times": self.__race_data.base_sector_times[driver],
 				"tyre_diff": 0,
 				"stint_laps_diff": 0,
 				"drs_available": False,
@@ -74,12 +74,12 @@ class RaceSimulation:
 		"""
 		Simulate the race and return the final drivers' data.
 		"""
-		for lap in range(1, self.race_data.max_laps + 1):
-			self._process_lap(lap)
+		for lap in range(1, self.__race_data.max_laps + 1):
+			self.__process_lap(lap)
 
 		return self.sim_data
 
-	def _process_lap(self, lap):
+	def __process_lap(self, lap):
 		"""
 		Process a lap, including itterating the lapnumber and handling retirements and safety cars
 		"""
@@ -89,20 +89,20 @@ class RaceSimulation:
 			d["stint_lap"] += 1
 
 		# Check for safety car and retirements
-		safety_car = lap in self.race_data.safety_car_laps
+		safety_car = lap in self.__race_data.safety_car_laps
 
-		if lap in self.race_data.retirements_by_lap:
-			self._handle_retirements(lap)
+		if lap in self.__race_data.retirements_by_lap:
+			self.__handle_retirements(lap)
 
 		# Process each sector
 		for sector in range(1, 4):
-			self._process_sector(sector, lap, safety_car)
+			self.__process_sector(sector, lap, safety_car)
 
-	def _handle_retirements(self, lap):
+	def __handle_retirements(self, lap):
 		"""
 		Handle driver retirements at the given lap.
 		"""
-		retiring_drivers = self.race_data.retirements_by_lap[lap]
+		retiring_drivers = self.__race_data.retirements_by_lap[lap]
 
 		# Move all drivers behind the retiring drivers up by 1 position
 		for driver in retiring_drivers:
@@ -120,7 +120,7 @@ class RaceSimulation:
 				d["retired"] = True
 				d["position"] = 999
 
-	def _process_sector(self, sector, lap, safety_car):
+	def __process_sector(self, sector, lap, safety_car):
 		"""
 		Process a single sector for all drivers.
 		"""
@@ -132,33 +132,33 @@ class RaceSimulation:
 			d["sector"] = sector
 
 			# Calculate sector time based on tyre degradation, fuel correction, and safety car penalty
-			a, b, c = self.race_data.driver_tyre_coefficients[d["driver_number"]][d["tyre_type"]][sector]
+			a, b, c = self.__race_data.driver_tyre_coefficients[d["driver_number"]][d["tyre_type"]][sector]
 			sector_time = (
 				d["base_sector_times"][sector]  # Base sector time for specific driver
 				+ (a * d["stint_lap"]**2 + b * d["stint_lap"] + c)  # Tyre degradation
-				+ self.race_data.fuel_corrections[lap]  # Fuel effect
+				+ self.__race_data.fuel_corrections[lap]  # Fuel effect
 			)
 			if safety_car:
-				sector_time *= self.race_data.safety_car_penalty_percentage
+				sector_time *= self.__race_data.safety_car_penalty_percentage
 
 			# Update sector time and cumulative time
 			d["sector_time"] = sector_time
 			d["cumulative_time"] += sector_time
 
 			# Add to rolling pace tracker
-			self.driver_pace_per_sec[d["driver_number"]][sector].append(sector_time)
+			self.__driver_pace_per_sec[d["driver_number"]][sector].append(sector_time)
 
 			# Handle pit stops at the start of a lap (sector 1)
 			if sector == 1 and lap in d["pit_schedule"]:
 				if lap == 1:
 					continue
 				d["pit"] = True
-				if d["driver_number"] in self.race_data.driver_pit_times:
+				if d["driver_number"] in self.__race_data.driver_pit_times:
 					# Add the driver's specific pit time if available
-					d["cumulative_time"] += self.race_data.driver_pit_times[d["driver_number"]]
+					d["cumulative_time"] += self.__race_data.driver_pit_times[d["driver_number"]]
 				else:
 					# Use the overall average pit time (key 0) if the driver doesn't have a specific pit time
-					d["cumulative_time"] += self.race_data.driver_pit_times[0]
+					d["cumulative_time"] += self.__race_data.driver_pit_times[0]
 
 				d["stint_lap"] = 1
 				d["tyre_type"] = d["pit_schedule"][lap]   # change tyre 
@@ -196,7 +196,7 @@ class RaceSimulation:
 				d["gap"] = gap
 
 				# Calculate rolling pace
-				sector_times = self.driver_pace_per_sec[d["driver_number"]][sector]
+				sector_times = self.__driver_pace_per_sec[d["driver_number"]][sector]
 				if len(sector_times) > 0:
 					# find average
 					rolling_pace = sum(sector_times) / len(sector_times)
@@ -216,7 +216,7 @@ class RaceSimulation:
 		# Predict overtakes
 		active_drivers = [d for d in self.sim_data if not d["retired"]]
 
-		predicted_overtakes = self.overtake_model.handle_overtake_prediction(active_drivers)
+		predicted_overtakes = self.__overtake_model.handle_overtake_prediction(active_drivers)
 
 		# can use active_drivers and dicts are mutable
 		for i, driver in enumerate(active_drivers):

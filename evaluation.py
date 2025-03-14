@@ -5,17 +5,14 @@ class RaceSimEvaluation:
 		"""Initializes the RaceSimEvaluation object.
 
 		Args:
-			race_sim_obj: Object of RaceSimulation class
+			race_sim_obj: Object of RaceSimulator class
 			race_df_obj: Object of RaceDataframe class - this is the actual race dataframe
 			database_obj: Object of class DatabaseOperations class
 		"""
-
-		self.race_sim_obj = race_sim_obj
-		self.race_df_obj = race_df_obj
-		self.database_obj = database_obj
+		self.__database_obj = database_obj
 		
-		self.sim_df = race_sim_obj.get_results_as_dataframe()
-		self.actual_race_df = race_df_obj.race_df
+		self.__sim_df = race_sim_obj.get_results_as_dataframe()
+		self.__actual_race_df = race_df_obj.race_df
 
 	def compare_total_cumulative_times(self):
 		"""Compares the total cumulative times between simulated and actual race data
@@ -26,17 +23,17 @@ class RaceSimEvaluation:
 		comparison_results = []
 			
 		# Get unique drivers from the simulated DataFrame
-		drivers = self.sim_df["driver_number"].unique()
+		drivers = self.__sim_df["driver_number"].unique()
 		
 		# Calculate cumulative times for each driver in both simulated and actual data
 		for driver in drivers:
 			# Simulated cumulative time for the driver
-			sim_data = self.sim_df[self.sim_df["driver_number"] == driver]
+			sim_data = self.__sim_df[self.__sim_df["driver_number"] == driver]
 			sim_cumulative_time = sim_data["cumulative_time"].max()
 			driver_name = sim_data["driver_name"].iloc[0]
 			
 			# Actual cumulative time for the driver
-			actual_data = self.actual_race_df[self.actual_race_df["driver_number"] == driver]
+			actual_data = self.__actual_race_df[self.__actual_race_df["driver_number"] == driver]
 			actual_cumulative_time = actual_data["cumulative_time"].max()
 			driver_name = actual_data["driver_name"].iloc[0]
 
@@ -72,13 +69,13 @@ class RaceSimEvaluation:
 		"""
 		# Extract simulated final positions
 		sim_results = (
-			self.sim_df[~self.sim_df["retired"]]  # Exclude retired drivers
+			self.__sim_df[~self.__sim_df["retired"]]  # Exclude retired drivers
 			.groupby("driver_number")["position"]
 			.last()
 			.to_dict()
 		)
 		
-		session_results = self.database_obj.race_session_results_db
+		session_results = self.__database_obj.race_session_results_db
 		# Extract actual final positions
 		actual_results = {driver_num: position for position, driver_num, end_status in session_results}
 
@@ -118,7 +115,7 @@ class RaceSimEvaluation:
 		"""
 		# Extract simulated final positions
 		sim_results = (
-			self.sim_df[self.sim_df["retired"] == False]  # Exclude retired drivers
+			self.__sim_df[self.__sim_df["retired"] == False]  # Exclude retired drivers
 			.groupby("driver_number")["position"]
 			.last()
 			.to_dict()
@@ -126,7 +123,7 @@ class RaceSimEvaluation:
 		
 		# Extract actual final positions
 		actual_results = (
-			self.actual_race_df  # Exclude retired drivers
+			self.__actual_race_df  # Exclude retired drivers
 			.groupby("driver_number")["position"]
 			.last()
 			.to_dict()
@@ -176,7 +173,7 @@ class RaceSimEvaluation:
 			retired_drivers = []
 
 			# Iterate through session results to determine retirements
-			for _, driver_num, end_status in self.database_obj.race_session_results_db:
+			for _, driver_num, end_status in self.__database_obj.race_session_results_db:
 				# Check if the driver retired (end_status is not "Finished" or "+1 Lap")
 				if end_status and not (end_status.startswith("Finished") or end_status.startswith("+")):
 					# Add the driver to the list of retirees
@@ -189,14 +186,14 @@ class RaceSimEvaluation:
 
 		# Simulated data
 		sim_leader_time = (
-			self.sim_df[self.sim_df["position"] == 1]  # Leader (first position)
+			self.__sim_df[self.__sim_df["position"] == 1]  # Leader (first position)
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.min()
 		)
 
 		sim_gaps_to_front = (
-			self.sim_df[~self.sim_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
+			self.__sim_df[~self.__sim_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.apply(lambda x: x - sim_leader_time)
@@ -205,7 +202,7 @@ class RaceSimEvaluation:
 		total_sim_gap = sim_gaps_to_front.sum()
 
 		# All the laps which non retired drivers did
-		driver_laps = self.actual_race_df[~self.actual_race_df["driver_number"].isin(retired_drivers)].groupby('driver_number')['lap_num'].apply(set)
+		driver_laps = self.__actual_race_df[~self.__actual_race_df["driver_number"].isin(retired_drivers)].groupby('driver_number')['lap_num'].apply(set)
 		
 		# Find the intersection of all lap sets (common laps across all drivers)
 		common_laps = set.intersection(*driver_laps)
@@ -214,18 +211,18 @@ class RaceSimEvaluation:
 		max_common_lap = max(common_laps) if common_laps else None
 
 		actual_leader_time = (
-			self.actual_race_df[
-				(self.actual_race_df["lap_num"] == max_common_lap) &  # Filter by max common lap as some drivers may do more than others
-				(self.actual_race_df["position"] == 1)]  # Leader (first position)
+			self.__actual_race_df[
+				(self.__actual_race_df["lap_num"] == max_common_lap) &  # Filter by max common lap as some drivers may do more than others
+				(self.__actual_race_df["position"] == 1)]  # Leader (first position)
 			.groupby("driver_number")["cumulative_time"]
 			.max()
 			.min()
 		)
 
 		actual_gaps_to_front = (
-			self.actual_race_df[
-				(self.actual_race_df["lap_num"] == max_common_lap) &   # Filter by max common lap as some drivers may do more than others
-				(~self.actual_race_df["driver_number"].isin(retired_drivers))  # Exclude retired drivers
+			self.__actual_race_df[
+				(self.__actual_race_df["lap_num"] == max_common_lap) &   # Filter by max common lap as some drivers may do more than others
+				(~self.__actual_race_df["driver_number"].isin(retired_drivers))  # Exclude retired drivers
 			]
 			.groupby("driver_number")["cumulative_time"]
 			.max()
@@ -252,7 +249,7 @@ class EvaluateMany:
 		""" Add a race to the evaluation pipeline.
 
 		Args:
-			race_sim_obj: The RaceSimulation object for the race.
+			race_sim_obj: The RaceSimulator object for the race.
 			race_df_obj: The RaceDataframe object for the race.
 			database_obj: The DatabaseOperations object for the race.
 		"""

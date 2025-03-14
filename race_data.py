@@ -4,11 +4,11 @@ import pandas as pd
 
 class RaceDataSetup:
 	def __init__(self, db_operations_obj, race_df_obj):
-		self.db_operations_obj = db_operations_obj      # this is an object of the DatabaseOperations class
-		self.race_dataframe_obj = race_df_obj      # this is an object of the RaceDataframe class
+		self.__db_operations_obj = db_operations_obj      # this is an object of the DatabaseOperations class
+		self.__race_dataframe_obj = race_df_obj      # this is an object of the RaceDataframe class
 
-		self.race_df = self.race_dataframe_obj.race_df
-		self.driver_tyre_coefficients = self._get_driver_tyre_coefficients()
+		self.race_df = self.__race_dataframe_obj.race_df
+		self.driver_tyre_coefficients = self.get_driver_tyre_coefficients()
 		self.driver_strategies = self.extract_driver_strategies()
 		self.max_laps = self.race_df["lap_num"].max()
 		self.drivers = self.race_df["driver_number"].unique()
@@ -17,7 +17,7 @@ class RaceDataSetup:
 			for driver in self.drivers
 			}
 		self.starting_positions = self.get_starting_positions()
-		self.base_sector_times = self.race_dataframe_obj.base_sector_times
+		self.base_sector_times = self.__race_dataframe_obj.base_sector_times
 		self.fuel_corrections = self.calc_fuel_corrections()
 		self.safety_car_laps = self.get_safety_car_laps()
 		self.retirements_by_lap = self.get_retirements_per_lap()
@@ -27,7 +27,18 @@ class RaceDataSetup:
 	# ----------------------- Mainly for calculating tyre deg -----------------------
 	#									   START
 	@staticmethod
-	def _correct_fuel_effect(race_df, max_lap=None, max_fuel_kg=110, fuel_effect_per_kg=0.03):
+	def correct_fuel_effect(race_df, max_lap=None, max_fuel_kg=110, fuel_effect_per_kg=0.03):
+		""" Assigns new columns for fuel effects
+
+		Args:
+			race_df (pd.DataFrame): dataframe of the race
+			max_lap (int, optional): the max number of laps in the race. Defaults to None.
+			max_fuel_kg (int, optional): how much fuel the cars are starting with in KG. Defaults to 110.
+			fuel_effect_per_kg (float, optional): the time lost per lap, for each kg of fuel . Defaults to 0.03.
+
+		Returns:
+			pd.DataFrame: df with new fuel corrected columns
+		"""
 		# Find the maximum number of laps completed by any driver in the race
 		if max_lap is None:
 			max_lap = race_df["lap_num"].max()
@@ -45,7 +56,16 @@ class RaceDataSetup:
 		return race_df
 
 	@staticmethod
-	def _assign_stint_numbers(race_df):
+	def assign_stint_numbers(race_df):
+		"""Assigns stint numbers to laps based on pit stops for each driver
+
+		Args:
+			race_df (pd.DataFrame): dataframe of the race
+
+		Returns:
+			pd.DataFrame: df with new stint column
+		"""
+
 		# Assign stint numbers to laps based on pit stops for each driver
 		race_df["stint"] = np.nan
 		for driver in race_df["driver_number"].unique():
@@ -59,7 +79,17 @@ class RaceDataSetup:
 		return race_df
 
 	@staticmethod
-	def _remove_laps_outside_percent(race_df, percentage=5):
+	def remove_laps_outside_percent(race_df, percentage=5):
+		""" Removes laps where fuel corrected sector times is above the given percentage
+
+		Args:
+			race_df (pd.DataFrame): dataframe of the race
+			percentage (float, optional): the threshold percentage above the fastest laptime
+
+		Returns:
+			pd.DataFrame: df with outliers removed
+		"""
+			
 		def _filter_driver_sector_laps(driver_sector_df):
 			# Calculate the threshold based on the fastest lap time for the driver and sector
 			fastest_lap_time = driver_sector_df["fuel_corrected_sector_time"].min()
@@ -80,7 +110,17 @@ class RaceDataSetup:
 		return race_df
 
 	@staticmethod
-	def _normalise_lap_times_by_sector(race_df):
+	def normalise_lap_times_by_sector(race_df):
+		""" Normalises by taking the drivers fastest time in that sector in quali from the sector time
+		This means we can get deg curves that arent dependant on the laptime, they are how much time deg adds on
+
+		Args:
+			race_df (pd.DataFrame): race df
+
+		Returns:
+			pd.DataFrame: df with the normalised time
+		"""
+
 		# Normalise lap times by subtracting the fastest sector time
 		race_df['normalised_sector_time'] = (
 			race_df['fuel_corrected_sector_time'] - race_df['base_sector_time']
@@ -90,13 +130,21 @@ class RaceDataSetup:
 	#									   END
 	# ----------------------- Mainly for calculating tyre deg -----------------------
 
-	def _get_driver_tyre_coefficients(self):
+	def get_driver_tyre_coefficients(self):
+		""" Calculates tyre degradation coefficients for each driver, tyre type, and sector.
+
+		The race df is taken and pre processed, then tyre deg is done on the normalised sector times
+		If a driver hasnt used a tyre type, an average of every other driver is added
+
+		Returns:
+			dict: {driverNum: {tyreType: {sector1Deg: [], sector2Deg: [], sector3Deg: []}}}
+		"""
 		# Pre process
 		race_df = self.race_df
-		race_df = self._assign_stint_numbers(race_df)
-		race_df = self._correct_fuel_effect(race_df)
-		race_df = self._remove_laps_outside_percent(race_df)
-		race_df = self._normalise_lap_times_by_sector(race_df)
+		race_df = self.assign_stint_numbers(race_df)
+		race_df = self.correct_fuel_effect(race_df)
+		race_df = self.remove_laps_outside_percent(race_df)
+		race_df = self.normalise_lap_times_by_sector(race_df)
 		
 		# Define minimum laps required for each tyre type
 		min_laps_by_tyre = {
@@ -172,7 +220,6 @@ class RaceDataSetup:
 			# Store the driver's coefficients
 			driver_tyre_coefficients[driver] = driver_coeffs
 
-		# Step 2: Fallback to global averages if a driver is missing tyre types or sectors
 		# Calculate global averages for each tyre type and sector
 		global_tyre_coefficients = {}
 		for tyre in min_laps_by_tyre.keys():
@@ -202,12 +249,10 @@ class RaceDataSetup:
 		return driver_tyre_coefficients
 	
 	def get_unique_tyre_types(self):
-		"""
-		Extract all unique tyre types for which we have degradation data across all drivers.
+		""" Extract all unique tyre types for which we have degradation data across all drivers
 		
 		Parameters:
-			driver_tyre_coefficients (dict): The output of _get_driver_tyre_coefficients.
-				Structure: {driver_number: {tyre_type: {sector: [a, b, c]}}}
+			driver_tyre_coefficients (dict): output of get_driver_tyre_coefficients.
 		
 		Returns:
 			set: A set of unique tyre types (e.g., {1, 2, 3} for Hard, Medium, Soft).
@@ -222,6 +267,11 @@ class RaceDataSetup:
 		return unique_tyre_types
 
 	def extract_driver_strategies(self):
+		""" Gets strategies of all drivers in the race
+
+		Returns:
+			dict: {driver_number: {lap_number: tyre_type}}
+		"""
 		# Initialize the dictionary to store strategies
 		driver_strategies = {}
 		
@@ -248,6 +298,17 @@ class RaceDataSetup:
 		return driver_strategies
 
 	def extract_driver_strategy(self, given_driver):
+		""" Gets the strategy for a single given driver
+
+		Args:
+			given_driver (int): the number of the given driver
+
+		Raises:
+			ValueError: if we cant find the driver or if the user didnt give a valid number
+
+		Returns:
+			dict: {lap_number: tyre_type}
+		"""
 		if given_driver is None:
 			raise ValueError("No driver specified. Please provide a valid driver number.")
 	
@@ -271,10 +332,23 @@ class RaceDataSetup:
 		return sorted_strategy
 	
 	def get_starting_positions(self):
-		return {driver_num: grid_pos for grid_pos, driver_num, _ in self.db_operations_obj.race_session_results_db}
+		""" Gets the positions of each drivers starting pos
+
+		Returns:
+			dict: {driver_num: grid_pos}
+		"""
+		return {driver_num: grid_pos for grid_pos, driver_num, _ in self.__db_operations_obj.race_session_results_db}
 
 	def calc_fuel_corrections(self, max_fuel_kg=110, fuel_effect_per_kg=0.03):
+		""" Pre calcs the fuel correction values for each lap in race
 
+		Args:
+			max_fuel_kg (int, optional): Fuel level in kg. Defaults to 110.
+			fuel_effect_per_kg (float, optional): time lost per lap per each kg of fuel. Defaults to 0.03.
+
+		Returns:
+			dict: fuel correction values for each lap
+		"""
 		fuel_corrections = {
 			lap: (max_fuel_kg - (lap - 1) * (max_fuel_kg / self.max_laps)) * fuel_effect_per_kg
 			for lap in range(1, self.max_laps + 1)
@@ -283,22 +357,39 @@ class RaceDataSetup:
 		return fuel_corrections
 	
 	def get_safety_car_laps(self):
+		""" Gets all the laps where the safety car is deployed
+
+		Based on whos in position 1 only
+
+		Returns:
+			array: list of lap numbers where its deployed
+		"""
 		return self.race_df[(self.race_df["track_status"] != 1) & (self.race_df["position"]==1)]["lap_num"].unique().tolist()
 	
 	def get_safety_car_penaltly(self):
+		""" Calcs the average penalty of how much slower laps are under the safety car
+
+		Returns:
+			float: the penalty (decimal) due to the safety car laps - like 1.__ so can multiply straight away
+		"""
 		safety_car_lap_time_mean = self.race_df[self.race_df["lap_num"].isin(self.safety_car_laps)]["lap_time"].mean()
 		normal_lap_time_mean = self.race_df[~self.race_df["lap_num"].isin(self.safety_car_laps)]["lap_time"].mean()
 
-		penalty_percentage = ((safety_car_lap_time_mean - normal_lap_time_mean) / normal_lap_time_mean) + 1
+		penalty = ((safety_car_lap_time_mean - normal_lap_time_mean) / normal_lap_time_mean) + 1
 
-		return penalty_percentage
+		return penalty
 
 	def get_retirements_per_lap(self):
-			# Initialize an empty dictionary to store retirements by lap
+		""" Gets the drivers who retired and the laps they retired on
+
+		Returns:
+			dict: a dict with lap number being the key and then the value being 
+				an array of the drivers who retired {lap_num: [drivers]}
+		"""
 		retirements_per_lap = {}
 	
 		# Iterate through session results to determine retirements
-		for driver_id, driver_num, end_status in self.db_operations_obj.race_session_results_db:
+		for driver_id, driver_num, end_status in self.__db_operations_obj.race_session_results_db:
 			# Check if the driver retired (end_status is not "Finished" or "+1 Lap")
 			if end_status and not (end_status.startswith("Finished") or end_status.startswith("+")):
 				# Find the maximum lap number for the driver (last recorded lap)
@@ -312,20 +403,27 @@ class RaceDataSetup:
 		return retirements_per_lap
 	
 	def get_pit_stop_time(self):
-		# Filter rows where pit_time is not None (i.e., rows with valid pit stops)
+		""" Calcualtes the average pit stops time for each driver
+		And the average as well, for a fallback
+
+		Returns:
+			dict: a dict with the average pit stop times for each driver - {driver_num: pit_time}
+		"""
+
+		# get rows where pit stops are
 		pit_stops = self.race_df[self.race_df["pit_time"].notna()]
 
-		# Initialize an empty dictionary to store the results
 		average_pit_stop_times = {}
 
-		# Group by driver_number and calculate the mean pit_time for each group
+		# group by driver_number and calculate the mean pit_time for each group
 		for driver_number, group in pit_stops.groupby("driver_number"):
-			# Calculate the average pit stop time for the driver
+			# calc the average pit stop time for the driver
 			average_pit_time = group["pit_time"].mean()
 			
-			# Add the driver's average pit stop time to the dictionary
+			# add average pit stop time to the dictionary
 			average_pit_stop_times[driver_number] = average_pit_time
 		
+		# calc average
 		overall_average_pit_time = pit_stops["pit_time"].mean()
 		average_pit_stop_times[0] = overall_average_pit_time
 
@@ -334,30 +432,30 @@ class RaceDataSetup:
 	
 
 	def get_driver_finishing_position(self, given_driver):
-		"""
-		Retrieve the finishing position for a given driver from the session results.
+		""" get the finishing position for a given driver from the session results (db)
 
 		Parameters:
-			driver_number (int): The driver number for which to retrieve the finishing position.
+			driver_number (int): driver for which we want to get the finishing position
 
 		Returns:
-			int: The finishing position of the driver.
+			int: The finishing position of the driver
 
 		Raises:
-			ValueError: If the driver is not found in the session results.
-			SessionNotFoundError: If no race results are found for the session.
+			ValueError: If the driver is not found in the session results
+			SessionNotFoundError: If no race results are found for the session
 		"""
-		# Step 1: Get the session results
-		session_results = self.db_operations_obj.race_session_results_db
+		# get resutls from db
+		session_results = self.__db_operations_obj.race_session_results_db
 
-		# Step 2: Filter the results for the given driver
+		# loop over all the results to find the driver
 		for result in session_results:
 			grid_pos, driver_num, end_status = result
 			if driver_num == given_driver:
+
+				# if they didnt retire
 				if end_status and (end_status.startswith("Finished") or end_status.startswith("+")):
 					return grid_pos  # Return the finishing position
 				else:
 					raise ValueError(f"Driver {given_driver} did not finish the race. End status: {end_status}")
 
-		# Step 3: If the driver is not found, raise an error
 		raise ValueError(f"Driver {given_driver} not found in the session results.")

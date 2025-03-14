@@ -4,20 +4,16 @@ import pandas as pd
 
 class RaceDataframe:
 	def __init__(self, db_operations):
-		self.db_operations = db_operations    # this is an object of the DatabaseOperations class
-		self.db_session = db_operations.db_session
-
-		self.race_session_db = self.db_operations.race_session_db
-		self.quali_session_db = self.db_operations.quali_session_db
+		self.__db_operations = db_operations    # this is an object of the DatabaseOperations class
 		
-		self.base_sector_times = self._get_base_sector_times()
-		self.race_df = self._get_race_df()
+		self.base_sector_times = self.__get_base_sector_times()
+		self.race_df = self.__get_race_df()
 
 	# not 100% happy about where this is
-	def _get_base_sector_times(self):
+	def __get_base_sector_times(self):
 		# Query to find the minimum sector times for each driver and sector
 		min_sector_times = (
-			self.db_session.query(
+			self.__db_operations.db_session.query(
 				Lap.driver_id,
 				Driver.driver_num,
 				func.min(Lap.s1_time).label("min_s1"),
@@ -26,7 +22,7 @@ class RaceDataframe:
 			)
 			.join(Driver, Lap.driver_id == Driver.driver_id)
 			.filter(
-				Lap.session_id == self.quali_session_db.session_id,
+				Lap.session_id == self.__db_operations.quali_session_db.session_id,
 				Lap.s1_time.isnot(None),  # Ensure sector times are not null
 				Lap.s2_time.isnot(None),
 				Lap.s3_time.isnot(None)
@@ -47,13 +43,13 @@ class RaceDataframe:
 
 		return base_sector_times
 
-	def _get_raw_race_df(self):
+	def get_raw_race_df(self):
 		"""Reutrns the raw race race_df with no added info from the database
 
 		Returns:
 			Pandas DF: 
 		"""
-		laps = self.race_session_db.laps
+		laps = self.__db_operations.race_session_db.laps
 		# Convert to DataFrame
 		laps_data = []
 		for lap in laps:
@@ -89,7 +85,7 @@ class RaceDataframe:
 
 		return race_df
 	
-	def _add_race_data(self, race_df):
+	def add_race_data(self, race_df):
 		"""Adds extra info the race dataframe such as gaps and info for overtakes. Added to train the overtake model
 
 		Returns:
@@ -105,7 +101,7 @@ class RaceDataframe:
 			.reset_index(level=[0, 1], drop=True)
 		)
 
-		# Get car ahead"s cumulative time (car immediately ahead in position for each lap)
+		# Get car aheads cumulative time (car immediately ahead in position for each lap)
 		race_df["front_cumulative_time"] = race_df.groupby(["lap_num", "sector"])["cumulative_time"].shift(1)
 		# This gap is calculated only for drivers who are not in the lead position (position > 1)
 		race_df["gap"] = race_df["cumulative_time"] - race_df["front_cumulative_time"]
@@ -132,7 +128,7 @@ class RaceDataframe:
 		race_df["next_position"] = race_df.groupby("driver_name")["position"].shift(1)
 		race_df["next_pit"] = race_df.groupby("driver_name")["pit"].shift(-1)
 
-		# Handle NaN values in 'next_pit' by filling them with False
+		# Handle NaN values in next_pit by filling them with False
 		race_df["next_pit"] = race_df["next_pit"].fillna(False)
 
 		# Define the "overtaken" column
@@ -146,10 +142,10 @@ class RaceDataframe:
 
 		return race_df
 	
-	def _get_race_df(self):
-		raw_df = self._get_raw_race_df()
+	def __get_race_df(self):
+		raw_df = self.get_raw_race_df()
 		
-		race_df = self._add_race_data(raw_df)
+		race_df = self.add_race_data(raw_df)
 
 
 		return race_df
