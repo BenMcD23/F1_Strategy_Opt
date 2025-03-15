@@ -1,9 +1,9 @@
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.orm import sessionmaker, declarative_base
 from custom_exceptions import SessionNotFoundError
 
-from DB.models import Circuit, RacingWeekend, Driver, Session, SessionResult
+from DB.models import Circuit, RacingWeekend, Driver, Session, SessionResult, Lap
 
 class DatabaseOperations:
 	""" 
@@ -34,11 +34,11 @@ class DatabaseOperations:
 		self.__year = year
 		self.__circuit = circuit
 		self.db_session = DatabaseOperations._Session()
-		self.race_session_db = self.__get_session("Race")
-		self.race_session_results_db = self.__get_session_results()
-		self.quali_session_db = self.__get_session("Qualifying")
+		self.race_session_db = self.get_session("Race")
+		self.race_session_results_db = self.__get_race_results()
+		self.quali_session_db = self.get_session("Qualifying")
 	
-	def __get_session(self, session_type):
+	def get_session(self, session_type):
 		"""Gets the database session for the given session type, such as Race or Qualifying
 
 		Args:
@@ -66,7 +66,7 @@ class DatabaseOperations:
 		return session
 
 
-	def __get_session_results(self):
+	def __get_race_results(self):
 		"""Retrieves the results of the race session from the database.
 
 		Returns:
@@ -91,3 +91,36 @@ class DatabaseOperations:
 			raise SessionNotFoundError(f"No race results found for year {self.__year} at circuit {self.__circuit}")
 
 		return session_results
+
+	def get_base_sector_times(self):
+		# Query to find the minimum sector times for each driver and sector
+		min_sector_times = (
+			self.db_session.query(
+				Lap.driver_id,
+				Driver.driver_num,
+				func.min(Lap.s1_time).label("min_s1"),
+				func.min(Lap.s2_time).label("min_s2"),
+				func.min(Lap.s3_time).label("min_s3")
+			)
+			.join(Driver, Lap.driver_id == Driver.driver_id)
+			.filter(
+				Lap.session_id == self.quali_session_db.session_id,
+				Lap.s1_time.isnot(None),  # Ensure sector times are not null
+				Lap.s2_time.isnot(None),
+				Lap.s3_time.isnot(None)
+			)
+			.group_by(Lap.driver_id, Driver.driver_num)
+			.all()
+		)
+
+		# Convert results into a dict
+		base_sector_times = {
+			row.driver_num: {
+				1: row.min_s1,
+				2: row.min_s2,
+				3: row.min_s3,
+			}
+			for row in min_sector_times
+		}
+
+		return base_sector_times

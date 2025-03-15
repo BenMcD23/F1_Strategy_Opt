@@ -6,7 +6,7 @@ class RaceDataframe:
 	def __init__(self, db_operations):
 		self.__db_operations = db_operations    # this is an object of the DatabaseOperations class
 		
-		self.base_sector_times = self.__get_base_sector_times()
+		self.base_sector_times = db_operations.get_base_sector_times()
 		self.race_df = self.__get_race_df()
 
 	# not 100% happy about where this is
