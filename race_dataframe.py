@@ -9,40 +9,6 @@ class RaceDataframe:
 		self.base_sector_times = db_operations.get_base_sector_times()
 		self.race_df = self.__get_race_df()
 
-	# not 100% happy about where this is
-	def __get_base_sector_times(self):
-		# Query to find the minimum sector times for each driver and sector
-		min_sector_times = (
-			self.__db_operations.db_session.query(
-				Lap.driver_id,
-				Driver.driver_num,
-				func.min(Lap.s1_time).label("min_s1"),
-				func.min(Lap.s2_time).label("min_s2"),
-				func.min(Lap.s3_time).label("min_s3")
-			)
-			.join(Driver, Lap.driver_id == Driver.driver_id)
-			.filter(
-				Lap.session_id == self.__db_operations.quali_session_db.session_id,
-				Lap.s1_time.isnot(None),  # Ensure sector times are not null
-				Lap.s2_time.isnot(None),
-				Lap.s3_time.isnot(None)
-			)
-			.group_by(Lap.driver_id, Driver.driver_num)
-			.all()
-		)
-
-		# Convert results into a dict
-		base_sector_times = {
-			row.driver_num: {
-				1: row.min_s1,
-				2: row.min_s2,
-				3: row.min_s3,
-			}
-			for row in min_sector_times
-		}
-
-		return base_sector_times
-
 	def get_raw_race_df(self):
 		"""Reutrns the raw race race_df with no added info from the database
 
