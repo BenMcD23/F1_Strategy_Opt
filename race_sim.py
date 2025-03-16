@@ -136,7 +136,7 @@ class RaceSimulator:
 			sector_time = (
 				d["base_sector_times"][sector]  # Base sector time for specific driver
 				+ (a * d["stint_lap"]**2 + b * d["stint_lap"] + c)  # Tyre degradation
-				+ self.__race_data.fuel_corrections[lap]  # Fuel effect
+				+ self.__race_data.fuel_corrections[(lap, sector)]  # Fuel effect
 			)
 			if safety_car:
 				sector_time *= self.__race_data.safety_car_penalty_percentage

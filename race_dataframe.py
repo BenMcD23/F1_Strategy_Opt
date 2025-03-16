@@ -16,7 +16,7 @@ class RaceDataframe:
 			Pandas DF: 
 		"""
 		laps = self.__db_operations.race_session_db.laps
-		# Convert to DataFrame
+
 		laps_data = []
 		for lap in laps:
 			for sector in range(1, 4):

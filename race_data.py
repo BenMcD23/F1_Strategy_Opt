@@ -28,31 +28,46 @@ class RaceDataSetup:
 	#									   START
 	@staticmethod
 	def correct_fuel_effect(race_df, max_lap=None, max_fuel_kg=110, fuel_effect_per_kg=0.03):
-		""" Assigns new columns for fuel effects
+		""" Assigns new columns for fuel effects at the sector level.
 
 		Args:
 			race_df (pd.DataFrame): dataframe of the race
 			max_lap (int, optional): the max number of laps in the race. Defaults to None.
 			max_fuel_kg (int, optional): how much fuel the cars are starting with in KG. Defaults to 110.
-			fuel_effect_per_kg (float, optional): the time lost per lap, for each kg of fuel . Defaults to 0.03.
+			fuel_effect_per_kg (float, optional): the time lost per lap, for each kg of fuel. Defaults to 0.03.
 
 		Returns:
 			pd.DataFrame: df with new fuel corrected columns
 		"""
-		# Find the maximum number of laps completed by any driver in the race
+
 		if max_lap is None:
 			max_lap = race_df["lap_num"].max()
 
-		# Group by driver to process each driver"s laps individually
+		fuel_reduction_per_lap = max_fuel_kg / max_lap
+		fuel_reduction_per_sector = fuel_reduction_per_lap / 3
+		fuel_time_per_sector = fuel_effect_per_kg / 3
+
 		def _correct_fuel_for_driver(driver_df):
-			# Make sure we modify the original DataFrame using .loc to avoid SettingWithCopyWarning
-			driver_df.loc[:, "fuel_weight"] = max_fuel_kg - (driver_df["lap_num"] - 1) * (max_fuel_kg / max_lap)
-			driver_df.loc[:, "fuel_correction"] = (driver_df["fuel_weight"] * fuel_effect_per_kg) / 3
-			driver_df.loc[:, "fuel_corrected_sector_time"] = driver_df["sector_time"] - driver_df["fuel_correction"]
+			# Calculate fuel weight for each sector
+			driver_df.loc[:, "fuel_weight_sector"] = max_fuel_kg - (
+				(driver_df["lap_num"] - 1) * fuel_reduction_per_lap +
+				(driver_df["sector"] - 1) * fuel_reduction_per_sector
+			)
+
+			# Calculate fuel correction for each sector
+			driver_df.loc[:, "fuel_correction_sector"] = (
+				driver_df["fuel_weight_sector"] * fuel_time_per_sector
+			)
+
+			# Apply fuel correction to sector times
+			driver_df.loc[:, "fuel_corrected_sector_time"] = (
+				driver_df["sector_time"] - driver_df["fuel_correction_sector"]
+			)
+
 			return driver_df
 
-		# Apply the correction to each driver"s laps using groupby and avoid deprecated behavior with group_keys=False
-		race_df = race_df.groupby("driver_number", group_keys=False)[race_df.columns].apply(_correct_fuel_for_driver).reset_index(drop=True)
+		race_df = race_df.groupby("driver_number", group_keys=False).apply(_correct_fuel_for_driver).reset_index(drop=True)
+
 		return race_df
 
 	@staticmethod
@@ -145,7 +160,7 @@ class RaceDataSetup:
 		race_df = self.correct_fuel_effect(race_df)
 		race_df = self.remove_laps_outside_percent(race_df)
 		race_df = self.normalise_lap_times_by_sector(race_df)
-		
+
 		# Define minimum laps required for each tyre type
 		min_laps_by_tyre = {
 			1: 2,  # Soft
@@ -349,10 +364,27 @@ class RaceDataSetup:
 		Returns:
 			dict: fuel correction values for each lap
 		"""
-		fuel_corrections = {
-			lap: (max_fuel_kg - (lap - 1) * (max_fuel_kg / self.max_laps)) * fuel_effect_per_kg
-			for lap in range(1, self.max_laps + 1)
-		}
+		fuel_reduction_per_lap = max_fuel_kg / self.max_laps
+		fuel_reduction_per_sector = fuel_reduction_per_lap / 3
+
+		# Initialize the dictionary to store fuel corrections for each sector
+		fuel_corrections = {}
+
+		# Loop through each lap and sector to calculate fuel corrections
+		for lap in range(1, self.max_laps + 1):
+			for sector in range(1, 4):  # Sectors are numbered 1, 2, 3
+				# Calculate the fuel weight at the start of this sector
+				fuel_weight_at_sector_start = (
+					max_fuel_kg - 
+					((lap - 1) * fuel_reduction_per_lap) - 
+					((sector - 1) * fuel_reduction_per_sector)
+				)
+
+				# Calculate the fuel correction for this sector
+				fuel_correction = fuel_weight_at_sector_start * fuel_effect_per_kg
+
+				# Store the fuel correction in the dictionary
+				fuel_corrections[(lap, sector)] = fuel_correction
 
 		return fuel_corrections
 	
