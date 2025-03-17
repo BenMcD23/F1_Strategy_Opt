@@ -462,3 +462,32 @@ class RaceDataSetup:
 
 		return average_pit_stop_times
 	
+
+	def get_driver_finishing_position(self, given_driver):
+		""" get the finishing position for a given driver from the session results (db)
+
+		Parameters:
+			driver_number (int): driver for which we want to get the finishing position
+
+		Returns:
+			int: The finishing position of the driver
+
+		Raises:
+			ValueError: If the driver is not found in the session results
+			SessionNotFoundError: If no race results are found for the session
+		"""
+		# get resutls from db
+		session_results = self.__db_operations_obj.race_session_results_db
+
+		# loop over all the results to find the driver
+		for result in session_results:
+			grid_pos, driver_num, end_status = result
+			if driver_num == given_driver:
+
+				# if they didnt retire
+				if end_status and (end_status.startswith("Finished") or end_status.startswith("+")):
+					return grid_pos  # Return the finishing position
+				else:
+					raise ValueError(f"Driver {given_driver} did not finish the race. End status: {end_status}")
+
+		raise ValueError(f"Driver {given_driver} not found in the session results.")
