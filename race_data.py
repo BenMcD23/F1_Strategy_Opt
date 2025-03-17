@@ -199,11 +199,11 @@ class RaceDataSetup:
 						if len(stint_data) < min_laps:
 							continue
 
-						# Fit a constrained polynomial model
+						# X and Y data
 						x = stint_data["tyre_laps"].values
 						y = stint_data["normalised_sector_time"].values
 
-						# Define the objective function for least squares
+						# Define the objective function
 						def objective(coeffs):
 							a, b, c = coeffs
 							return np.sum((a * x**2 + b * x + c - y)**2)
@@ -214,7 +214,7 @@ class RaceDataSetup:
 						)
 
 						# Initial guess for coefficients
-						initial_guess = [0.001, 0.1, y[0]]  # Small positive values for [a, b, c]
+						initial_guess = [0.001, 0.1, y[0]]
 
 						# Perform constrained optimization
 						result = minimize(objective, initial_guess, constraints=constraints)
