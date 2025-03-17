@@ -18,8 +18,9 @@ import pandas as pd
 
 
 class RaceSimulator:
-	def __init__(self, race_data, given_driver=None, simulated_strategy=None):
+	def __init__(self, race_data, overtake_model, given_driver=None, simulated_strategy=None):
 		self.__race_data = race_data      # a RaceDataSetup object
+		self.__overtake_model = overtake_model    # a OvertakingModel object
 
 
 		# Update strategies if a specific driver and strategy are provided
@@ -174,7 +175,66 @@ class RaceSimulator:
 		if safety_car:
 			return
 
+		# Handle overtakes
+		for d in self.sim_data:
+			if d["retired"]:
+				continue
+			d["drs_available"] = False
+			ahead_pos = d["position"] - 1
+			if ahead_pos > 0:
+				ahead_driver = next(a_d for a_d in active_drivers if a_d["position"] == ahead_pos)
+				current_driver_time = d["cumulative_time"]
+				ahead_driver_time = ahead_driver["cumulative_time"]
 
+				# Fix cumulative times if out of order
+				if ahead_driver_time > current_driver_time:
+					new_ahead_time = current_driver_time - 1
+					ahead_driver["cumulative_time"] = new_ahead_time
+					ahead_driver_time = new_ahead_time
+
+				gap = current_driver_time - ahead_driver_time
+				d["gap"] = gap
+
+				# Calculate rolling pace
+				sector_times = self.__driver_pace_per_sec[d["driver_number"]][sector]
+				if len(sector_times) > 0:
+					# find average
+					rolling_pace = sum(sector_times) / len(sector_times)
+				else:
+					rolling_pace = 0.0  # Default value if no sector times are available yet
+
+				d["pace"] = rolling_pace
+
+				# Update other features
+				d["tyre_diff"] = ahead_driver["tyre_type"] - d["tyre_type"]
+				d["stint_laps_diff"] = ahead_driver["stint_lap"] - d["stint_lap"]
+				if gap < 1:
+					d["drs_available"] = True
+			else:
+				d["gap"] = 0
+
+		# Predict overtakes
+		active_drivers = [d for d in self.sim_data if not d["retired"]]
+
+		predicted_overtakes = self.__overtake_model.handle_overtake_prediction(active_drivers)
+
+		# can use active_drivers and dicts are mutable
+		for i, driver in enumerate(active_drivers):
+			driver["predicted_overtake"] = predicted_overtakes[i]
+
+		for driver in active_drivers:
+			if driver["retired"]:
+				continue
+
+			ahead_pos = driver["position"] - 1
+			if driver["gap"] < 1 and ahead_pos > 0 and driver["predicted_overtake"]:
+				self.num_overtakes += 1
+				ahead_driver = next(d for d in active_drivers if d["position"] == ahead_pos)
+				# Swap positions and cumulative times
+				driver["position"], ahead_driver["position"] = ahead_driver["position"], driver["position"]
+				driver["cumulative_time"], ahead_driver["cumulative_time"] = (
+					ahead_driver["cumulative_time"] - 1, driver["cumulative_time"]
+				)
 
 	
 	def get_results_as_dataframe(self):
