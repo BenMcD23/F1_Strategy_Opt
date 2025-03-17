@@ -10,7 +10,7 @@ import numpy as np
 import os
 import math
 
-os.remove('f1_data_V4.db')
+os.remove('f1_data.db')
 
 # Initialize logging
 logging.basicConfig(level=logging.WARNING)
@@ -220,19 +220,7 @@ for year in years:
 				laps_df.drop(columns=['AlignedPitInTime'], inplace=True)
 
 				if session_name == "Qualifying":
-					# Group by both Team and DriverNumber to calculate the fastest lap for each driver
-					fastest_laps_by_driver = (
-						laps_df.groupby(['Team', 'DriverNumber'])['LapTimeSeconds']
-						.min()
-						.reset_index()
-					)
-
-					# Group by Team and calculate the average fastest lap time across the two drivers
-					fastest_laps_quali = (
-						fastest_laps_by_driver.groupby('Team')['LapTimeSeconds']
-						.mean()
-						.to_dict()
-					)
+					laps_df = laps_df[laps_df["Deleted"] != True]
 
 				if session_name == "Race":
 					laps_df = add_stint_laps_column(laps_df)
