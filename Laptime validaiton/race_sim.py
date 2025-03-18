@@ -138,6 +138,7 @@ class RaceSimulator:
 				+ (a * d["stint_lap"]**2 + b * d["stint_lap"] + c)  # Tyre degradation
 				+ self.__race_data.fuel_corrections[(lap, sector)]  # Fuel effect
 			)
+
 			if safety_car:
 				sector_time *= self.__race_data.safety_car_penalty_percentage
 
@@ -147,11 +148,13 @@ class RaceSimulator:
 
 			# Add to rolling pace tracker
 			self.__driver_pace_per_sec[d["driver_number"]][sector].append(sector_time)
-
+		
 			# Handle pit stops at the start of a lap (sector 1)
 			if sector == 1 and lap in d["pit_schedule"]:
+			
 				if lap == 1:
 					continue
+
 				d["pit"] = True
 				if d["driver_number"] in self.__race_data.driver_pit_times:
 					# Add the driver's specific pit time if available
@@ -160,7 +163,7 @@ class RaceSimulator:
 					# Use the overall average pit time (key 0) if the driver doesn't have a specific pit time
 					d["cumulative_time"] += self.__race_data.driver_pit_times[0]
 
-				d["stint_lap"] = 1
+				d["stint_lap"] = 0
 				d["tyre_type"] = d["pit_schedule"][lap]   # change tyre 
 			else:
 				d["pit"] = False

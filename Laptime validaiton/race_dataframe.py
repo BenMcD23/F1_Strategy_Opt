@@ -57,7 +57,19 @@ class RaceDataframe:
 		Returns:
 			Pandas DF: _description_
 		"""
-		race_df["cumulative_time"] = race_df.groupby("driver_name")["sector_time"].cumsum()
+
+		average_sector_times = (
+			race_df.groupby(["driver_name", "sector"])["sector_time"]
+			.mean()
+			.reset_index()
+			.rename(columns={"sector_time": "avg_sector_time"})
+		)
+		race_df = race_df.merge(average_sector_times, on=["driver_name", "sector"], how="left")
+		race_df["sector_time_filled"] = race_df["sector_time"].fillna(race_df["avg_sector_time"])
+		race_df["cumulative_time"] = race_df.groupby("driver_name")["sector_time_filled"].cumsum()
+		race_df.drop(columns=["avg_sector_time", "sector_time_filled"], inplace=True)
+
+		# race_df["cumulative_time"] = race_df.groupby("driver_name")["sector_time"].cumsum()
 	
 		# Calculate rolling pace (average lap time over the last 5 laps)
 		race_df["pace"] = (

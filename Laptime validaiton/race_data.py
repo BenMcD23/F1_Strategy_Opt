@@ -385,7 +385,7 @@ class RaceDataSetup:
 
 				# Store the fuel correction in the dictionary
 				fuel_corrections[(lap, sector)] = fuel_correction
-
+		
 		return fuel_corrections
 	
 	def get_safety_car_laps(self):
@@ -396,7 +396,7 @@ class RaceDataSetup:
 		Returns:
 			array: list of lap numbers where its deployed
 		"""
-		return self.race_df[(self.race_df["track_status"] != 1) & (self.race_df["position"]==1)]["lap_num"].unique().tolist()
+		return self.race_df[(self.race_df["track_status"] == 4) & (self.race_df["position"]==1)]["lap_num"].unique().tolist()
 	
 	def get_safety_car_penaltly(self):
 		""" Calcs the average penalty of how much slower laps are under the safety car
