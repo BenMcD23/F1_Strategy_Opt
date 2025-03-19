@@ -10,13 +10,10 @@ class OvertakingModel:
 		self.__race_df = race_df
 		self.feature_names = [
 			"gap",
-			"tyre_diff",
 			"stint_laps_diff",
 			"drs_available",
-			"cumulative_time",
 			"sector_time",
-			"pace",
-			"pit"
+			"sector",
 		]
 		self.__imputer = SimpleImputer(strategy='mean')  # Imputer for missing values
 		self.__model = self.__train_overtaking_model()
