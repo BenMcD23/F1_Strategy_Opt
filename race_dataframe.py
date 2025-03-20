@@ -97,8 +97,8 @@ class RaceDataframe:
 		# Handle NaN values in next_pit by filling them with False
 		race_df["next_pit"] = race_df["next_pit"].fillna(False)
 
-		# Define the "overtaken" column
-		race_df["overtaken"] = (
+		# Define the "overtake" column
+		race_df["overtake"] = (
 			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))  # Original condition
 			& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
 		)

@@ -24,7 +24,7 @@ class OvertakingModel:
 	def __train_overtaking_model(self):
 		# Prepare feature matrix (X) and target vector (y)
 		X = self.__race_df[self.feature_names].values 
-		y = self.__race_df["overtaken"].values
+		y = self.__race_df["overtake"].values
 
 		# Handle missing values using the imputer
 		X = self.__imputer.fit_transform(X)
@@ -99,7 +99,7 @@ class OvertakingModel:
 	def get_model_accuracy(self):
 		# Split the data into features and target
 		X_test = self.__race_df[self.feature_names].values
-		y_test = self.__race_df["overtaken"].values
+		y_test = self.__race_df["overtake"].values
 
 		# Predict overtakes
 		predicted_overtakes = self.predict_overtake(X_test)
@@ -111,6 +111,6 @@ class OvertakingModel:
 		report = classification_report(
 			y_test,
 			predicted_overtakes,
-			target_names=["No Overtake", "Overtaken"]
+			target_names=["No Overtake", "overtake"]
 		)
 		return accuracy, report
