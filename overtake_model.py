@@ -5,6 +5,10 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import accuracy_score, classification_report
 import numpy as np
 
+
+from sklearn.model_selection import train_test_split
+
+
 class OvertakingModel:
 	def __init__(self, race_df):
 		self.__race_df = race_df
@@ -111,6 +115,63 @@ class OvertakingModel:
 		report = classification_report(
 			y_test,
 			predicted_overtakes,
-			target_names=["No Overtake", "overtake"]
+			target_names=["No Overtake", "Overtake"]
 		)
+		return accuracy, report
+
+
+
+	def train_with_test_split(self, test_size=0.2, random_state=32):
+		"""
+		Splits the data into training and testing sets, trains the model on the training set,
+		and evaluates it on the testing set.
+		
+		Args:
+			test_size (float): Proportion of the dataset to include in the test split.
+			random_state (int): Random seed for reproducibility.
+		
+		Returns:
+			float: Accuracy score on the test set.
+			str: Classification report.
+		"""
+		# Prepare feature matrix (X) and target vector (y)
+		X = self.__race_df[self.feature_names].values
+		y = self.__race_df["overtake"].values
+
+		# Split the data into training and testing sets
+		X_train, X_test, y_train, y_test = train_test_split(
+			X, y, test_size=test_size, random_state=random_state, stratify=y
+		)
+
+		# Handle missing values using the imputer
+		X_train = self.__imputer.fit_transform(X_train)
+		X_test = self.__imputer.transform(X_test)
+
+		# Resample the data using SMOTE
+		smote = SMOTE(random_state=42)
+		X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+
+		# Train the GradientBoostingClassifier
+		gbc = GradientBoostingClassifier(
+			n_estimators=200,
+			learning_rate=0.05,
+			max_depth=3,
+			subsample=0.8,
+			random_state=42
+		)
+
+		# Calibrate for better probabilities
+		model = CalibratedClassifierCV(gbc, method="sigmoid", cv=3)
+		model.fit(X_resampled, y_resampled)
+
+
+		# Evaluate the model on the test set
+		predictions = model.predict(X_test)
+		accuracy = accuracy_score(y_test, predictions)
+		report = classification_report(
+			y_test,
+			predictions,
+			target_names=["No Overtake", "Overtake"]
+		)
+
 		return accuracy, report
