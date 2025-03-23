@@ -14,227 +14,153 @@ class RaceSimEvaluation:
 		self.__sim_df = race_sim_obj.get_results_as_dataframe()
 		self.__actual_race_df = race_df_obj.race_df
 
-	def compare_total_cumulative_times(self):
-		"""Compares the total cumulative times between simulated and actual race data
-
-		Returns:
-			tuple: A DataFrame with comparison results for each driver and the total Mean Absolute Error (MAE)
-		"""
-		comparison_results = []
-			
-		# Get unique drivers from the simulated DataFrame
-		drivers = self.__sim_df["driver_number"].unique()
-		
-		# Calculate cumulative times for each driver in both simulated and actual data
-		for driver in drivers:
-			# Simulated cumulative time for the driver
-			sim_data = self.__sim_df[self.__sim_df["driver_number"] == driver]
-			sim_cumulative_time = sim_data["cumulative_time"].max()
-			driver_name = sim_data["driver_name"].iloc[0]
-			
-			# Actual cumulative time for the driver
-			actual_data = self.__actual_race_df[self.__actual_race_df["driver_number"] == driver]
-			actual_cumulative_time = actual_data["cumulative_time"].max()
-			driver_name = actual_data["driver_name"].iloc[0]
-
-			# Calculate the absolute error for the driver
-			absolute_error = abs(sim_cumulative_time - actual_cumulative_time)
-			
-			# Store the results for the driver
-			comparison_results.append({
-				"driver_number": driver,
-				"driver_name": driver_name,
-				"simulated_cumulative_time": sim_cumulative_time,
-				"actual_cumulative_time": actual_cumulative_time,
-				"absolute_error": absolute_error
-			})
-		
-		# Convert the results to a DataFrame
-		comparison_df = pd.DataFrame(comparison_results)
-		
-		# Calculate the total Mean Absolute Error (MAE)
-		total_mae = comparison_df["absolute_error"].mean()
-		
-		return comparison_df, total_mae
-	
-	def get_position_accuracy_final_class(self):
-		""" Evaluates the accuracy of the simulated results against the actual final classification results,
-			this is after any penalties have been applied
-
-		Raises:
-			ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
-
-		Returns:
-			dict: Some metrics
-		"""
-		# Extract simulated final positions
-		sim_results = (
-			self.__sim_df[~self.__sim_df["retired"]]  # Exclude retired drivers
-			.groupby("driver_number")["position"]
-			.last()
-			.to_dict()
+	def get_comparison_df(self):
+		# Extract relevant columns from the simulated DataFrame
+		sim_positions = self.__sim_df[["driver_name", "position"]].rename(
+			columns={"position": "simulated_position"}
 		)
-		
-		session_results = self.__database_obj.race_session_results_db
-		# Extract actual final positions
-		actual_results = {driver_num: position for position, driver_num, end_status in session_results}
 
-		# Ensure both results have the same drivers
-		common_drivers = set(sim_results.keys()).intersection(actual_results.keys())
-		if not common_drivers:
-			raise ValueError("No common drivers found between actual and simulated results")
-		
-		# Filter results to only include common drivers
-		actual_positions = [actual_results[driver] for driver in common_drivers]
-		sim_positions = [sim_results[driver] for driver in common_drivers]
-		
-		# Calculate accuracy metrics
-		position_accuracy = sum(1 for a, s in zip(actual_positions, sim_positions) if a == s) / len(common_drivers)
-		top_3_accuracy = sum(1 for a, s in zip(actual_positions, sim_positions) if (a <= 3 and s <= 3)) / 3
-		mean_error = sum(abs(a - s) for a, s in zip(actual_positions, sim_positions)) / len(common_drivers)
-		total_error = sum(abs(a - s) for a, s in zip(actual_positions, sim_positions))
-		
-		# Return accuracy metrics
-		return {
-			"position_accuracy": position_accuracy,
-			"top_3_accuracy": top_3_accuracy,
-			"mean_error": mean_error,
-			"total_error": total_error,
+		# Filter the actual DataFrame to get the last lap for each driver
+		actual_final_laps = (
+			self.__actual_race_df
+			.sort_values(by=["driver_name", "lap_num"])  # Sort by driver and lap number
+			.groupby("driver_name")  # Group by driver
+			.tail(1)  # Get the last lap for each driver
+		)
+		actual_positions = actual_final_laps[["driver_name", "position"]].rename(
+			columns={"position": "actual_position"}
+		)
+
+		# Merge the two DataFrames on "driver_name"
+		driver_positions_df = pd.merge(
+			sim_positions,
+			actual_positions,
+			on="driver_name",
+			how="inner"
+		)
+
+		# Mark retirements as R
+		driver_positions_df.loc[driver_positions_df['simulated_position'] > 21, 'simulated_position'] = "R"
+
+		driver_positions_df.loc[driver_positions_df['simulated_position'] == "R", 'actual_position'] = "R"
+
+		# Add the maximum lap completed by each driver in the actual race
+		max_laps_completed = (
+			self.__actual_race_df
+			.groupby("driver_name")["lap_num"]  # Group by driver and get lap numbers
+			.max()  # Get the maximum lap number for each driver
+		)
+		driver_positions_df = driver_positions_df.merge(
+			max_laps_completed.rename("laps_completed"),
+			left_on="driver_name",
+			right_index=True,
+			how="left"
+		)
+
+		# Add the maximum cumulative time from the simulated data
+		max_cumulative_time_sim = (
+			self.__sim_df
+			.groupby("driver_name")["cumulative_time"]  # Group by driver and get cumulative times
+			.max()  # Get the maximum cumulative time for each driver
+		)
+		driver_positions_df = driver_positions_df.merge(
+			max_cumulative_time_sim.rename("cumulative_time_sim"),
+			left_on="driver_name",
+			right_index=True,
+			how="left"
+		)
+
+		# Add the maximum cumulative time from the actual data
+		max_cumulative_time_actual = (
+			self.__actual_race_df
+			.groupby("driver_name")["cumulative_time"]  # Group by driver and get cumulative times
+			.max()  # Get the maximum cumulative time for each driver
+		)
+		driver_positions_df = driver_positions_df.merge(
+			max_cumulative_time_actual.rename("cumulative_time_actual"),
+			left_on="driver_name",
+			right_index=True,
+			how="left"
+		)
+
+		driver_positions_df = self.calculate_gaps_to_leader(driver_positions_df)
+
+		driver_positions_df = self.calculate_errors(driver_positions_df)
+
+
+		return driver_positions_df
+
+	def calculate_gaps_to_leader(self, driver_positions_df):
+		active_drivers = driver_positions_df[driver_positions_df['simulated_position'] != "R"]["driver_name"]
+
+		sim_leader_time = self.__sim_df[self.__sim_df["position"] == 1]["cumulative_time"].values[0]
+
+		sim_gaps_to_leader = {
+			driver: self.__sim_df[self.__sim_df["driver_name"] == driver]["cumulative_time"].max() - sim_leader_time
+			for driver in active_drivers
 		}
 
-
-	def get_position_accuracy_end_of_race(self):
-		""" Evaluates the accuracy of the simulated results against the results at the end of the race,
-			probably a more fair comparison
-
-		Raises:
-			ValueError: If no common drivers are found between simulated and actual results - shouldn't happen
-
-		Returns:
-			dict: Some metrics
-		"""
-		# Extract simulated final positions
-		sim_results = (
-			self.__sim_df[self.__sim_df["retired"] == False]  # Exclude retired drivers
-			.groupby("driver_number")["position"]
-			.last()
-			.to_dict()
-		)
-		
-		# Extract actual final positions
-		actual_results = (
-			self.__actual_race_df  # Exclude retired drivers
-			.groupby("driver_number")["position"]
-			.last()
-			.to_dict()
-		)
-			# actual_results = {driver_num: position for position, driver_num in session_results}
-
-		# Ensure both results have the same drivers
-		common_drivers = set(sim_results.keys()).intersection(actual_results.keys())
-		if not common_drivers:
-			raise ValueError("No common drivers found between actual and simulated results")
-		
-		# Filter results to only include common drivers
-		actual_positions = [actual_results[driver] for driver in common_drivers]
-		sim_positions = [sim_results[driver] for driver in common_drivers]
-		
-		# Calculate accuracy metrics
-		position_accuracy = sum(1 for a, s in zip(actual_positions, sim_positions) if a == s) / len(common_drivers)
-		top_3_accuracy = sum(1 for a, s in zip(actual_positions, sim_positions) if (a <= 3 and s <= 3)) / 3
-		mean_error = sum(abs(a - s) for a, s in zip(actual_positions, sim_positions)) / len(common_drivers)
-		total_error = sum(abs(a - s) for a, s in zip(actual_positions, sim_positions))
-		
-		# Return accuracy metrics
-		return {
-			"position_accuracy": position_accuracy,
-			"top_3_accuracy": top_3_accuracy,
-			"mean_error": mean_error,
-			"total_error": total_error,
-		}
-
-
-	def compare_total_to_front(self):
-		"""
-		Compares the total gaps to the leader between simulated and actual race data.
-
-		This method calculates the cumulative time gaps to the leader for all drivers 
-		(excluding retired drivers) in both simulated and actual race data. It then sums 
-		these gaps to provide a total comparison.
-
-		Returns:
-			dict: A dictionary containing the total gaps to the leader for both simulated 
-				and actual race data:
-				- total_simulated_gap_to_front: Total gap to the leader in simulated data.
-				- total_actual_gap_to_front: Total gap to the leader in actual data.
-		"""
-		def _get_retired_drivers():
-			# Initialize an empty list to store retired drivers
-			retired_drivers = []
-
-			# Iterate through session results to determine retirements
-			for _, driver_num, end_status in self.__database_obj.race_session_results_db:
-				# Check if the driver retired (end_status is not "Finished" or "+1 Lap")
-				if end_status and not (end_status.startswith("Finished") or end_status.startswith("+")):
-					# Add the driver to the list of retirees
-					retired_drivers.append(driver_num)
-			
-			return retired_drivers
-
-		# Get the list of retired drivers
-		retired_drivers = _get_retired_drivers()
-
-		# Simulated data
-		sim_leader_time = (
-			self.__sim_df[self.__sim_df["position"] == 1]  # Leader (first position)
-			.groupby("driver_number")["cumulative_time"]
-			.max()
-			.min()
-		)
-
-		sim_gaps_to_front = (
-			self.__sim_df[~self.__sim_df["driver_number"].isin(retired_drivers)]  # Exclude retired drivers
-			.groupby("driver_number")["cumulative_time"]
-			.max()
-			.apply(lambda x: x - sim_leader_time)
-		)
-
-		total_sim_gap = sim_gaps_to_front.sum()
-
-		# All the laps which non retired drivers did
-		driver_laps = self.__actual_race_df[~self.__actual_race_df["driver_number"].isin(retired_drivers)].groupby('driver_number')['lap_num'].apply(set)
-		
-		# Find the intersection of all lap sets (common laps across all drivers)
-		common_laps = set.intersection(*driver_laps)
-
-		# Return the largest common lap number
-		max_common_lap = max(common_laps) if common_laps else None
-
-		actual_leader_time = (
+		actual_leader_times = (
 			self.__actual_race_df[
-				(self.__actual_race_df["lap_num"] == max_common_lap) &  # Filter by max common lap as some drivers may do more than others
-				(self.__actual_race_df["position"] == 1)]  # Leader (first position)
-			.groupby("driver_number")["cumulative_time"]
-			.max()
-			.min()
-		)
-
-		actual_gaps_to_front = (
-			self.__actual_race_df[
-				(self.__actual_race_df["lap_num"] == max_common_lap) &   # Filter by max common lap as some drivers may do more than others
-				(~self.__actual_race_df["driver_number"].isin(retired_drivers))  # Exclude retired drivers
+				(self.__actual_race_df["position"] == 1) &  # Leader (first position)
+				(self.__actual_race_df["sector"] == 3)      # Sector 3
 			]
-			.groupby("driver_number")["cumulative_time"]
-			.max()
-			.apply(lambda x: x - actual_leader_time)
+			.set_index("lap_num")["cumulative_time"]  # Set lap_num as index and select cumulative_time
 		)
 
-		total_actual_gap = actual_gaps_to_front.sum()
-		# Return the total gaps
-		return {
-			"total_simulated_gap_to_front": total_sim_gap,
-			"total_actual_gap_to_front": total_actual_gap,
-		}
+		actual_gaps_to_leader = {}
+		for driver in active_drivers:
+			actual_driver_data = self.__actual_race_df[self.__actual_race_df["driver_name"] == driver]
+			if not actual_driver_data.empty:
+				max_lap_actual = actual_driver_data["lap_num"].max()
+				actual_driver_time = actual_driver_data["cumulative_time"].max()
+				actual_leader_time = actual_leader_times.get(max_lap_actual, None)
+				actual_gaps_to_leader[driver] = actual_driver_time - actual_leader_time
+
+		# Add gaps to the leader to the main DataFrame
+		driver_positions_df["gap_to_leader_sim"] = driver_positions_df["driver_name"].map(sim_gaps_to_leader)
+		driver_positions_df["gap_to_leader_actual"] = driver_positions_df["driver_name"].map(actual_gaps_to_leader)
+
+		# Handle NaN values for retired drivers
+		driver_positions_df["gap_to_leader_sim"] = driver_positions_df["gap_to_leader_sim"].fillna("R")
+		driver_positions_df["gap_to_leader_actual"] = driver_positions_df["gap_to_leader_actual"].fillna("R")
+
+		return driver_positions_df
+
+	def calculate_errors(self, driver_positions_df):
+		"""
+		Calculates the error between simulated and actual data for cumulative times and gaps to the leader.
+		Handles cases where values are "R" or NaN.
+
+		Args:
+			driver_positions_df (pd.DataFrame): The main DataFrame containing driver data.
+
+		Returns:
+			pd.DataFrame: The updated DataFrame with error columns.
+		"""
+		# Calculate cumulative time error
+		driver_positions_df["cumulative_time_error"] = (
+			driver_positions_df.apply(
+				lambda row: row["cumulative_time_sim"] - row["cumulative_time_actual"]
+				if isinstance(row["cumulative_time_sim"], (int, float)) and isinstance(row["cumulative_time_actual"], (int, float))
+				else "R",
+				axis=1
+			)
+		)
+
+		# Calculate gap error
+		driver_positions_df["gap_error"] = (
+			driver_positions_df.apply(
+				lambda row: row["gap_to_leader_sim"] - row["gap_to_leader_actual"]
+				if isinstance(row["gap_to_leader_sim"], (int, float)) and isinstance(row["gap_to_leader_actual"], (int, float))
+				else "R",
+				axis=1
+			)
+		)
+
+		return driver_positions_df
+
+
 	
 
 
