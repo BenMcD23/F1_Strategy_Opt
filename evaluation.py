@@ -1,4 +1,7 @@
 import pandas as pd
+from scipy.stats import wilcoxon, spearmanr
+import matplotlib.pyplot as plt
+import numpy as np
 
 class RaceSimEvaluation:
 	def __init__(self, race_sim_obj, race_df_obj, database_obj):
@@ -14,155 +17,332 @@ class RaceSimEvaluation:
 		self.__sim_df = race_sim_obj.get_results_as_dataframe()
 		self.__actual_race_df = race_df_obj.race_df
 
+		self.comparison_df = self.get_comparison_df()
+
 	def get_comparison_df(self):
-		# Extract relevant columns from the simulated DataFrame
+		""" Using the simulated comparison_df and the actual race comparison_df, it combines certain elements
+
+		Returns:
+			DataFrame: comparison_df of the combined results, comparison
+		"""
+		
+
+		def _calculate_gaps_to_leader(comparison_df):
+			active_drivers = comparison_df[comparison_df['simulated_position'] != "R"]["driver_name"]
+
+			sim_leader_time = self.__sim_df[self.__sim_df["position"] == 1]["cumulative_time"].values[0]
+
+			sim_gaps_to_leader = {
+				driver: self.__sim_df[self.__sim_df["driver_name"] == driver]["cumulative_time"].max() - sim_leader_time
+				for driver in active_drivers
+			}
+
+			actual_leader_times = (
+				self.__actual_race_df[
+					(self.__actual_race_df["position"] == 1) &  # Leader (first position)
+					(self.__actual_race_df["sector"] == 3)      # Sector 3
+				]
+				.set_index("lap_num")["cumulative_time"]  # Set lap_num as index and select cumulative_time
+			)
+
+			actual_gaps_to_leader = {}
+			for driver in active_drivers:
+				actual_driver_data = self.__actual_race_df[self.__actual_race_df["driver_name"] == driver]
+				if not actual_driver_data.empty:
+					max_lap_actual = actual_driver_data["lap_num"].max()
+					actual_driver_time = actual_driver_data["cumulative_time"].max()
+					actual_leader_time = actual_leader_times.get(max_lap_actual, None)
+					actual_gaps_to_leader[driver] = actual_driver_time - actual_leader_time
+
+			# Add gaps to the leader to the main DataFrame
+			comparison_df["gap_to_leader_sim"] = comparison_df["driver_name"].map(sim_gaps_to_leader)
+			comparison_df["gap_to_leader_actual"] = comparison_df["driver_name"].map(actual_gaps_to_leader)
+
+			# Handle NaN values for retired drivers
+			comparison_df["gap_to_leader_sim"] = comparison_df["gap_to_leader_sim"].fillna("R")
+			comparison_df["gap_to_leader_actual"] = comparison_df["gap_to_leader_actual"].fillna("R")
+
+			return comparison_df
+
+		def _calculate_errors(comparison_df):
+			valid_rows = comparison_df[
+				(comparison_df["cumulative_time_sim"] != "R") &
+				(comparison_df["cumulative_time_actual"] != "R") &
+				(comparison_df["gap_to_leader_sim"] != "R") &
+				(comparison_df["gap_to_leader_actual"] != "R") &
+				(comparison_df["simulated_position"] != "R") &
+				(comparison_df["actual_position"] != "R")
+			].copy()
+			
+			# Calculate cumulative time error
+			valid_rows["cumulative_time_error"] = valid_rows["cumulative_time_sim"] - valid_rows["cumulative_time_actual"]
+
+			# Calculate gap error
+			valid_rows["gap_error"] = valid_rows["gap_to_leader_sim"] - valid_rows["gap_to_leader_actual"]
+
+			# Calculate position error
+			valid_rows["position_error"] = valid_rows["simulated_position"] - valid_rows["actual_position"]
+
+			# Merge the calculated errors back into the original DataFrame
+			comparison_df = comparison_df.merge(
+				valid_rows[["driver_name", "cumulative_time_error", "gap_error", "position_error"]],
+				on="driver_name",
+				how="left"
+			)
+
+			# Fill NaN values in error columns with "R" (for rows that were filtered out)
+			comparison_df[["cumulative_time_error", "gap_error", "position_error"]] = comparison_df[["cumulative_time_error", "gap_error", "position_error"]].fillna("R")
+
+			return comparison_df
+
+		# columns wanted from sim
 		sim_positions = self.__sim_df[["driver_name", "position"]].rename(
 			columns={"position": "simulated_position"}
 		)
 
-		# Filter the actual DataFrame to get the last lap for each driver
+		# The number of laps each driver completed
 		actual_final_laps = (
 			self.__actual_race_df
 			.sort_values(by=["driver_name", "lap_num"])  # Sort by driver and lap number
 			.groupby("driver_name")  # Group by driver
 			.tail(1)  # Get the last lap for each driver
 		)
+
+		# columns wanted from actual comparison_df
 		actual_positions = actual_final_laps[["driver_name", "position"]].rename(
 			columns={"position": "actual_position"}
 		)
 
-		# Merge the two DataFrames on "driver_name"
-		driver_positions_df = pd.merge(
+		# Merge the two DataFrames
+		comparison_df = pd.merge(
 			sim_positions,
 			actual_positions,
 			on="driver_name",
 			how="inner"
 		)
 
-		# Mark retirements as R
-		driver_positions_df.loc[driver_positions_df['simulated_position'] > 21, 'simulated_position'] = "R"
+		# Change to obj as have floats and str's (R for retired)
+		comparison_df["simulated_position"] = comparison_df["simulated_position"].astype(object)
+		comparison_df["actual_position"] = comparison_df["actual_position"].astype(object)
 
-		driver_positions_df.loc[driver_positions_df['simulated_position'] == "R", 'actual_position'] = "R"
+		# If the finishing position is above 20 then they retired
+		comparison_df.loc[comparison_df['simulated_position'] > 20, 'simulated_position'] = "R"
 
-		# Add the maximum lap completed by each driver in the actual race
+		comparison_df.loc[comparison_df['simulated_position'] == "R", 'actual_position'] = "R"
+
+		# add how many laps each driver completed
 		max_laps_completed = (
 			self.__actual_race_df
-			.groupby("driver_name")["lap_num"]  # Group by driver and get lap numbers
-			.max()  # Get the maximum lap number for each driver
+			.groupby("driver_name")["lap_num"]
+			.max()
 		)
-		driver_positions_df = driver_positions_df.merge(
+
+		# merge into one comparison_df
+		comparison_df = comparison_df.merge(
 			max_laps_completed.rename("laps_completed"),
 			left_on="driver_name",
 			right_index=True,
 			how="left"
 		)
 
-		# Add the maximum cumulative time from the simulated data
+		# Add cumulative time from the simulated data
 		max_cumulative_time_sim = (
 			self.__sim_df
-			.groupby("driver_name")["cumulative_time"]  # Group by driver and get cumulative times
-			.max()  # Get the maximum cumulative time for each driver
+			.groupby("driver_name")["cumulative_time"]
+			.max()
 		)
-		driver_positions_df = driver_positions_df.merge(
+
+		# merge into comparsion again
+		comparison_df = comparison_df.merge(
 			max_cumulative_time_sim.rename("cumulative_time_sim"),
 			left_on="driver_name",
 			right_index=True,
 			how="left"
 		)
 
-		# Add the maximum cumulative time from the actual data
+		# Add cumulative time from the actual data
 		max_cumulative_time_actual = (
 			self.__actual_race_df
-			.groupby("driver_name")["cumulative_time"]  # Group by driver and get cumulative times
-			.max()  # Get the maximum cumulative time for each driver
+			.groupby("driver_name")["cumulative_time"]
+			.max()
 		)
-		driver_positions_df = driver_positions_df.merge(
+
+		# merge again into main comparison_df
+		comparison_df = comparison_df.merge(
 			max_cumulative_time_actual.rename("cumulative_time_actual"),
 			left_on="driver_name",
 			right_index=True,
 			how="left"
 		)
 
-		driver_positions_df = self.calculate_gaps_to_leader(driver_positions_df)
+		comparison_df = _calculate_gaps_to_leader(comparison_df)
 
-		driver_positions_df = self.calculate_errors(driver_positions_df)
+		comparison_df = _calculate_errors(comparison_df)
 
 
-		return driver_positions_df
+		return comparison_df
 
-	def calculate_gaps_to_leader(self, driver_positions_df):
-		active_drivers = driver_positions_df[driver_positions_df['simulated_position'] != "R"]["driver_name"]
 
-		sim_leader_time = self.__sim_df[self.__sim_df["position"] == 1]["cumulative_time"].values[0]
+	def calculate_mae(self):
+		# filter out retirement drivers
+		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
 
-		sim_gaps_to_leader = {
-			driver: self.__sim_df[self.__sim_df["driver_name"] == driver]["cumulative_time"].max() - sim_leader_time
-			for driver in active_drivers
+		# use the error column and make absolute and calc mean
+		position_errors = valid_rows["position_error"].abs()
+		position_mae = position_errors.mean()
+		# add up all the errors
+		total_absolute_position_error = position_errors.sum()
+
+		# use the error column and make absolute and calc mean
+		cumulative_time_errors = valid_rows["cumulative_time_error"].abs()
+		cumulative_time_mae = cumulative_time_errors.mean()
+
+		# use the error column and make absolute and calc mean
+		gap_errors = valid_rows["gap_error"].abs()
+		gap_mae = gap_errors.mean()
+
+		return {
+			"total_absolute_position_error": total_absolute_position_error,
+			"position_mae": position_mae,
+			"cumulative_time_mae": cumulative_time_mae,
+			"gap_mae": gap_mae
 		}
 
-		actual_leader_times = (
-			self.__actual_race_df[
-				(self.__actual_race_df["position"] == 1) &  # Leader (first position)
-				(self.__actual_race_df["sector"] == 3)      # Sector 3
-			]
-			.set_index("lap_num")["cumulative_time"]  # Set lap_num as index and select cumulative_time
-		)
-
-		actual_gaps_to_leader = {}
-		for driver in active_drivers:
-			actual_driver_data = self.__actual_race_df[self.__actual_race_df["driver_name"] == driver]
-			if not actual_driver_data.empty:
-				max_lap_actual = actual_driver_data["lap_num"].max()
-				actual_driver_time = actual_driver_data["cumulative_time"].max()
-				actual_leader_time = actual_leader_times.get(max_lap_actual, None)
-				actual_gaps_to_leader[driver] = actual_driver_time - actual_leader_time
-
-		# Add gaps to the leader to the main DataFrame
-		driver_positions_df["gap_to_leader_sim"] = driver_positions_df["driver_name"].map(sim_gaps_to_leader)
-		driver_positions_df["gap_to_leader_actual"] = driver_positions_df["driver_name"].map(actual_gaps_to_leader)
-
-		# Handle NaN values for retired drivers
-		driver_positions_df["gap_to_leader_sim"] = driver_positions_df["gap_to_leader_sim"].fillna("R")
-		driver_positions_df["gap_to_leader_actual"] = driver_positions_df["gap_to_leader_actual"].fillna("R")
-
-		return driver_positions_df
-
-	def calculate_errors(self, driver_positions_df):
-		"""
-		Calculates the error between simulated and actual data for cumulative times and gaps to the leader.
-		Handles cases where values are "R" or NaN.
-
-		Args:
-			driver_positions_df (pd.DataFrame): The main DataFrame containing driver data.
-
-		Returns:
-			pd.DataFrame: The updated DataFrame with error columns.
-		"""
-		# Calculate cumulative time error
-		driver_positions_df["cumulative_time_error"] = (
-			driver_positions_df.apply(
-				lambda row: row["cumulative_time_sim"] - row["cumulative_time_actual"]
-				if isinstance(row["cumulative_time_sim"], (int, float)) and isinstance(row["cumulative_time_actual"], (int, float))
-				else "R",
-				axis=1
-			)
-		)
-
-		# Calculate gap error
-		driver_positions_df["gap_error"] = (
-			driver_positions_df.apply(
-				lambda row: row["gap_to_leader_sim"] - row["gap_to_leader_actual"]
-				if isinstance(row["gap_to_leader_sim"], (int, float)) and isinstance(row["gap_to_leader_actual"], (int, float))
-				else "R",
-				axis=1
-			)
-		)
-
-		return driver_positions_df
-
-
 	
+	def calculate_spearman(self):
+		# filter out retirement drivers
+		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
 
+		# Calculate Spearman correlation for cumulative times
+		spearman_cumulative = spearmanr(
+			valid_rows["cumulative_time_actual"],
+			valid_rows["cumulative_time_sim"]
+		)
+
+		# Calculate Spearman correlation for gaps to the leader
+		spearman_gaps = spearmanr(
+			valid_rows["gap_to_leader_actual"],
+			valid_rows["gap_to_leader_sim"]
+		)
+
+		return {
+			"cumulative_times": {
+				"correlation": spearman_cumulative.correlation,
+				"p_value": spearman_cumulative.pvalue
+			},
+			"gaps_to_leader": {
+				"correlation": spearman_gaps.correlation,
+				"p_value": spearman_gaps.pvalue
+			}
+		}
+
+	def calculate_wilcoxon(self):
+		# filter out retirement drivers
+		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+
+		# make the columns numeric, error otherwise
+		valid_rows["cumulative_time_error"] = pd.to_numeric(valid_rows["cumulative_time_error"], errors="coerce")
+		valid_rows["gap_error"] = pd.to_numeric(valid_rows["gap_error"], errors="coerce")
+
+		valid_rows = valid_rows.dropna(subset=["cumulative_time_error", "gap_error"])
+
+		# Calculate Wilcoxon test for cumulative times
+		wilcoxon_cumulative = wilcoxon(valid_rows["cumulative_time_error"])
+		n_cumulative = valid_rows["cumulative_time_error"].astype(bool).sum()  # Count non-zero values
+		expected_value_cumulative = n_cumulative * (n_cumulative + 1) / 4
+
+		# Calculate Wilcoxon test for gaps to the leader
+		wilcoxon_gaps = wilcoxon(valid_rows["gap_error"])
+		n_gaps = valid_rows["gap_error"].astype(bool).sum()  # Count non-zero values
+		expected_value_gaps = n_gaps * (n_gaps + 1) / 4
+
+		return {
+			"cumulative_times": {
+				"statistic": wilcoxon_cumulative.statistic,
+				"expected_value": expected_value_cumulative,
+				"p_value": wilcoxon_cumulative.pvalue
+			},
+			"gaps_to_leader": {
+				"statistic": wilcoxon_gaps.statistic,
+				"expected_value": expected_value_gaps,
+				"p_value": wilcoxon_gaps.pvalue
+			}
+		}
+
+
+	def plot_evaluation_results(self):
+		# filter out retirement drivers
+		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+
+		# Convert columns to numeric
+		valid_rows["cumulative_time_sim"] = pd.to_numeric(valid_rows["cumulative_time_sim"], errors="coerce")
+		valid_rows["cumulative_time_actual"] = pd.to_numeric(valid_rows["cumulative_time_actual"], errors="coerce")
+		valid_rows["gap_to_leader_sim"] = pd.to_numeric(valid_rows["gap_to_leader_sim"], errors="coerce")
+		valid_rows["gap_to_leader_actual"] = pd.to_numeric(valid_rows["gap_to_leader_actual"], errors="coerce")
+		
+		valid_rows = valid_rows.dropna(subset=["cumulative_time_sim", "cumulative_time_actual",
+											"gap_to_leader_sim", "gap_to_leader_actual"])
+
+		# Create subplots
+		fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+
+		# Plot 1: Actual vs Simulated Cumulative Times
+		axes[0].scatter(valid_rows['cumulative_time_actual'], valid_rows['cumulative_time_sim'], alpha=0.7)
+		axes[0].set_xlabel('Actual Cumulative Times (s)')
+		axes[0].set_ylabel('Simulated Cumulative Times (s)')
+		axes[0].set_title('Actual vs. Simulated Cumulative Times')
+		axes[0].plot([valid_rows['cumulative_time_actual'].min(), valid_rows['cumulative_time_actual'].max()],
+					[valid_rows['cumulative_time_actual'].min(), valid_rows['cumulative_time_actual'].max()],
+					color='red', linestyle='--', label='Perfect Fit')
+		axes[0].legend()
+		axes[0].grid(True)
+
+		# Plot 2: Actual vs Simulated Gaps to First Place
+		axes[1].scatter(valid_rows['gap_to_leader_actual'], valid_rows['gap_to_leader_sim'], alpha=0.7)
+		axes[1].plot([valid_rows['gap_to_leader_actual'].min(), valid_rows['gap_to_leader_actual'].max()],
+					[valid_rows['gap_to_leader_actual'].min(), valid_rows['gap_to_leader_actual'].max()],
+					color='red', linestyle='--', label='Perfect Fit')
+		axes[1].set_xlabel("Actual Gap to First Place (s)")
+		axes[1].set_ylabel("Simulated Gap to First Place (s)")
+		axes[1].set_title("Actual vs. Simulated Gaps to First Place")
+		axes[1].legend()
+		axes[1].grid(True)
+
+		# Plot 3: Bland-Altman Plot for Gaps to First Place
+		mean_values = (valid_rows['gap_to_leader_actual'] + valid_rows['gap_to_leader_sim']) / 2
+		differences = valid_rows['gap_to_leader_sim'] - valid_rows['gap_to_leader_actual']
+
+		# Calculate mean difference and std deviations
+		mean_difference = np.mean(differences)
+		std_difference = np.std(differences)
+		upper_limit = mean_difference + 1.96 * std_difference
+		lower_limit = mean_difference - 1.96 * std_difference
+
+		# Scatter plot
+		axes[2].scatter(mean_values, differences, alpha=0.7)
+		axes[2].axhline(y=0, color='r', linestyle='--')  # Add a reference line at zero
+		axes[2].axhline(y=upper_limit, color='g', linestyle='--')  # Upper limit
+		axes[2].axhline(y=lower_limit, color='g', linestyle='--')  # Lower limit
+
+		axes[2].text(
+			max(mean_values), mean_difference + 3,
+			f'Mean: {mean_difference:.2f}', color='red', va='center', ha='right'
+		)
+		axes[2].text(
+			max(mean_values), upper_limit + 4,
+			f'+1.96 SD: {upper_limit:.2f}', color='green', va='center', ha='right'
+		)
+		axes[2].text(
+			max(mean_values), lower_limit - 5,
+			f'-1.96 SD: {lower_limit:.2f}', color='green', va='center', ha='right'
+		)
+
+		axes[2].set_xlabel('Mean of Actual and Simulated Gaps')
+		axes[2].set_ylabel('Difference (Simulated - Actual)')
+		axes[2].set_title('Bland-Altman Plot for Gaps to First Place')
+
+		plt.tight_layout()
+		plt.show()
 
 class EvaluateMany:
 	def __init__(self):
