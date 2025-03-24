@@ -55,6 +55,7 @@ class RaceSimulator:
 				"lap_num": 0,
 				"sector": 0,
 				"sector_time": 0.0,
+				"lap_time": 0.0,
 				"stint_lap": 0,
 				"cumulative_time": 0.0,
 				"gap": 0.0,
@@ -66,7 +67,8 @@ class RaceSimulator:
 				"tyre_diff": 0,
 				"stint_laps_diff": 0,
 				"drs_available": False,
-				"retired": False,
+				"active": True,
+				"laps_lapped": 0,
 			})
 		return sim_data
 
@@ -87,6 +89,11 @@ class RaceSimulator:
 		for d in self.sim_data:
 			d["lap_num"] += 1
 			d["stint_lap"] += 1
+			d["lap_time"] = 0
+
+			# check if the driver has been lapped, so is finishing this lap
+			if ((lap + d["laps_lapped"]) == self.__race_data.max_laps) & (lap < self.__race_data.max_laps):
+				d["active"] = False
 
 		# Check for safety car and retirements
 		safety_car = lap in self.__race_data.safety_car_laps
@@ -97,6 +104,22 @@ class RaceSimulator:
 		# Process each sector
 		for sector in range(1, 4):
 			self.__process_sector(sector, lap, safety_car)
+
+		active_drivers = [d for d in self.sim_data if d["active"]]
+
+		leader = active_drivers["position" == 1]
+		leader_cumulative_time = leader["cumulative_time"]
+		leader_lap_time = leader["lap_time"]
+
+		for d in active_drivers:
+			if d["position"] == 1:
+				d["laps_lapped"] = 0  # Leader is never lapped
+				continue
+
+			# check if driver has been lapped by leader
+			time_difference = d["cumulative_time"] - leader_cumulative_time
+			if time_difference >= leader_lap_time:
+				d["laps_lapped"] = time_difference // leader_lap_time
 
 	def __handle_retirements(self, lap):
 		"""
@@ -114,10 +137,10 @@ class RaceSimulator:
 				if d["position"] > retiring_position:
 					d["position"] -= 1
 
-		# Mark retiring drivers as retired
+		# Mark retiring drivers as not active
 		for d in self.sim_data:
 			if d["driver_number"] in retiring_drivers:
-				d["retired"] = True
+				d["active"] = False
 				d["position"] = 999
 
 	def __process_sector(self, sector, lap, safety_car):
@@ -126,7 +149,7 @@ class RaceSimulator:
 		"""
 
 		for d in self.sim_data:
-			if d["retired"]:
+			if not d["active"]:
 				continue
 
 			d["sector"] = sector
@@ -143,8 +166,9 @@ class RaceSimulator:
 
 			# Update sector time and cumulative time
 			d["sector_time"] = sector_time
+			d["lap_time"] += sector_time
 			d["cumulative_time"] += sector_time
-
+			
 			# Add to rolling pace tracker
 			self.__driver_pace_per_sec[d["driver_number"]][sector].append(sector_time)
 
@@ -166,18 +190,18 @@ class RaceSimulator:
 				d["pit"] = False
 
 		# Re-sort drivers by cumulative time and update positions
-		active_drivers = [d for d in self.sim_data if not d["retired"]]
+		active_drivers = [d for d in self.sim_data if d["active"]]
 		active_drivers.sort(key=lambda x: x["cumulative_time"])
 		for i, d in enumerate(active_drivers):
 			d["position"] = i + 1
-
+		
 		# Skip overtakes during safety car
 		if safety_car:
 			return
 
 		# Handle overtakes
 		for d in self.sim_data:
-			if d["retired"]:
+			if not d["active"]:
 				continue
 			d["drs_available"] = False
 			ahead_pos = d["position"] - 1
@@ -214,27 +238,24 @@ class RaceSimulator:
 				d["gap"] = 0
 
 		# Predict overtakes
-		active_drivers = [d for d in self.sim_data if not d["retired"]]
+		active_drivers = [d for d in self.sim_data if d["active"]]
+		if active_drivers:
+			predicted_overtakes = self.__overtake_model.handle_overtake_prediction(active_drivers)
 
-		predicted_overtakes = self.__overtake_model.handle_overtake_prediction(active_drivers)
+			# can use active_drivers and dicts are mutable
+			for i, driver in enumerate(active_drivers):
+				driver["predicted_overtake"] = predicted_overtakes[i]
 
-		# can use active_drivers and dicts are mutable
-		for i, driver in enumerate(active_drivers):
-			driver["predicted_overtake"] = predicted_overtakes[i]
-
-		for driver in active_drivers:
-			if driver["retired"]:
-				continue
-
-			ahead_pos = driver["position"] - 1
-			if driver["gap"] < 1 and ahead_pos > 0 and driver["predicted_overtake"]:
-				self.num_overtakes += 1
-				ahead_driver = next(d for d in active_drivers if d["position"] == ahead_pos)
-				# Swap positions and cumulative times
-				driver["position"], ahead_driver["position"] = ahead_driver["position"], driver["position"]
-				driver["cumulative_time"], ahead_driver["cumulative_time"] = (
-					ahead_driver["cumulative_time"] - 1, driver["cumulative_time"]
-				)
+			for driver in active_drivers:
+				ahead_pos = driver["position"] - 1
+				if driver["gap"] < 1 and ahead_pos > 0 and driver["predicted_overtake"]:
+					self.num_overtakes += 1
+					ahead_driver = next(d for d in active_drivers if d["position"] == ahead_pos)
+					# Swap positions and cumulative times
+					driver["position"], ahead_driver["position"] = ahead_driver["position"], driver["position"]
+					driver["cumulative_time"], ahead_driver["cumulative_time"] = (
+						ahead_driver["cumulative_time"] - 1, driver["cumulative_time"]
+					)
 
 	
 	def get_results_as_dataframe(self):
