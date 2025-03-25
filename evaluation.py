@@ -92,6 +92,8 @@ class RaceSimEvaluation:
 				how="left"
 			)
 
+			comparison_df["overtake_error"]  = comparison_df["overtakes_sim"] - comparison_df["overtakes_actual"]
+
 			# Fill NaN values in error columns with "R" (for rows that were filtered out)
 			comparison_df[["cumulative_time_error", "gap_error", "position_error"]] = comparison_df[["cumulative_time_error", "gap_error", "position_error"]].fillna("R")
 
@@ -180,6 +182,7 @@ class RaceSimEvaluation:
 		# Count actual overtakes for each driver
 		actual_overtakes_count = (
 			self.__actual_race_df[self.__actual_race_df["overtake"] == True]
+			.drop_duplicates(subset=["driver_name", "lap_num"])  # Keep only unique lap numbers per driver
 			.groupby("driver_name")
 			.size()
 			.rename("overtakes_actual")
