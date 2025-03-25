@@ -28,7 +28,7 @@ class RaceSimEvaluation:
 		
 
 		def _calculate_gaps_to_leader(comparison_df):
-			active_drivers = comparison_df[comparison_df['simulated_position'] != "R"]["driver_name"]
+			active_drivers = comparison_df[comparison_df['position_sim'] != "R"]["driver_name"]
 
 			sim_leader_time = self.__sim_df[self.__sim_df["position"] == 1]["cumulative_time"].values[0]
 
@@ -70,8 +70,8 @@ class RaceSimEvaluation:
 				(comparison_df["cumulative_time_actual"] != "R") &
 				(comparison_df["gap_to_leader_sim"] != "R") &
 				(comparison_df["gap_to_leader_actual"] != "R") &
-				(comparison_df["simulated_position"] != "R") &
-				(comparison_df["actual_position"] != "R")
+				(comparison_df["position_sim"] != "R") &
+				(comparison_df["position_actual"] != "R")
 			].copy()
 			
 			# Calculate cumulative time error
@@ -81,11 +81,13 @@ class RaceSimEvaluation:
 			valid_rows["gap_error"] = valid_rows["gap_to_leader_sim"] - valid_rows["gap_to_leader_actual"]
 
 			# Calculate position error
-			valid_rows["position_error"] = valid_rows["simulated_position"] - valid_rows["actual_position"]
+			valid_rows["position_error"] = valid_rows["position_sim"] - valid_rows["position_actual"]
+
+			valid_rows["overtake_error"] = valid_rows["overtakes_sim"] - valid_rows["overtakes_actual"]
 
 			# Merge the calculated errors back into the original DataFrame
 			comparison_df = comparison_df.merge(
-				valid_rows[["driver_name", "cumulative_time_error", "gap_error", "position_error"]],
+				valid_rows[["driver_name", "cumulative_time_error", "gap_error", "position_error", "overtake_error"]],
 				on="driver_name",
 				how="left"
 			)
@@ -96,8 +98,8 @@ class RaceSimEvaluation:
 			return comparison_df
 
 		# columns wanted from sim
-		sim_positions = self.__sim_df[["driver_name", "position"]].rename(
-			columns={"position": "simulated_position"}
+		sim_positions = self.__sim_df[["driver_name", "position", "overtakes"]].rename(
+			columns={"position": "position_sim", "overtakes": "overtakes_sim"}
 		)
 
 		# The number of laps each driver completed
@@ -110,7 +112,7 @@ class RaceSimEvaluation:
 
 		# columns wanted from actual comparison_df
 		actual_positions = actual_final_laps[["driver_name", "position"]].rename(
-			columns={"position": "actual_position"}
+			columns={"position": "position_actual"}
 		)
 
 		# Merge the two DataFrames
@@ -122,13 +124,13 @@ class RaceSimEvaluation:
 		)
 
 		# Change to obj as have floats and str's (R for retired)
-		comparison_df["simulated_position"] = comparison_df["simulated_position"].astype(object)
-		comparison_df["actual_position"] = comparison_df["actual_position"].astype(object)
+		comparison_df["position_sim"] = comparison_df["position_sim"].astype(object)
+		comparison_df["position_actual"] = comparison_df["position_actual"].astype(object)
 
 		# If the finishing position is above 20 then they retired
-		comparison_df.loc[comparison_df['simulated_position'] > 20, 'simulated_position'] = "R"
+		comparison_df.loc[comparison_df['position_sim'] > 20, 'position_sim'] = "R"
 
-		comparison_df.loc[comparison_df['simulated_position'] == "R", 'actual_position'] = "R"
+		comparison_df.loc[comparison_df['position_sim'] == "R", 'position_actual'] = "R"
 
 		# add how many laps each driver completed
 		max_laps_completed = (
@@ -175,23 +177,45 @@ class RaceSimEvaluation:
 			how="left"
 		)
 
-		comparison_df = _calculate_gaps_to_leader(comparison_df)
+		# Count actual overtakes for each driver
+		actual_overtakes_count = (
+			self.__actual_race_df[self.__actual_race_df["overtake"] == True]
+			.groupby("driver_name")
+			.size()
+			.rename("overtakes_actual")
+		)
 
+		comparison_df = comparison_df.merge(
+			actual_overtakes_count,
+			left_on="driver_name",
+			right_index=True,
+			how="left"
+		)
+
+		comparison_df["overtakes_actual"] = comparison_df["overtakes_actual"].fillna(0).astype(int)
+		
+		comparison_df = _calculate_gaps_to_leader(comparison_df)
 		comparison_df = _calculate_errors(comparison_df)
 
+		return comparison_df[["driver_name", "laps_completed", "position_sim", "position_actual", "position_error", "overtakes_sim", "overtakes_actual", "overtake_error",
+							"cumulative_time_sim", "cumulative_time_actual", "cumulative_time_error", "gap_to_leader_sim", "gap_to_leader_actual", "gap_error"]]
 
-		return comparison_df
 
-
-	def calculate_mae(self):
+	def calculate_general_errors(self):
 		# filter out retirement drivers
-		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+		valid_rows = self.comparison_df[self.comparison_df["position_sim"] != "R"].copy()
 
 		# use the error column and make absolute and calc mean
 		position_errors = valid_rows["position_error"].abs()
 		position_mae = position_errors.mean()
 		# add up all the errors
 		total_absolute_position_error = position_errors.sum()
+
+		# use the error column and make absolute and calc mean
+		overtake_errors = valid_rows["overtake_error"].abs()
+		overtake_mae = overtake_errors.mean()
+		# add up all the errors
+		total_absolute_overtake_error = overtake_errors.sum()
 
 		# use the error column and make absolute and calc mean
 		cumulative_time_errors = valid_rows["cumulative_time_error"].abs()
@@ -204,6 +228,8 @@ class RaceSimEvaluation:
 		return {
 			"total_absolute_position_error": total_absolute_position_error,
 			"position_mae": position_mae,
+			"total_absolute_overtake_error": total_absolute_overtake_error,
+			"overtake_mae": overtake_mae,
 			"cumulative_time_mae": cumulative_time_mae,
 			"gap_mae": gap_mae
 		}
@@ -211,7 +237,7 @@ class RaceSimEvaluation:
 	
 	def calculate_spearman(self):
 		# filter out retirement drivers
-		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+		valid_rows = self.comparison_df[self.comparison_df["position_sim"] != "R"].copy()
 
 		# Calculate Spearman correlation for cumulative times
 		spearman_cumulative = spearmanr(
@@ -238,7 +264,7 @@ class RaceSimEvaluation:
 
 	def calculate_wilcoxon(self):
 		# filter out retirement drivers
-		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+		valid_rows = self.comparison_df[self.comparison_df["position_sim"] != "R"].copy()
 
 		# make the columns numeric, error otherwise
 		valid_rows["cumulative_time_error"] = pd.to_numeric(valid_rows["cumulative_time_error"], errors="coerce")
@@ -272,7 +298,7 @@ class RaceSimEvaluation:
 
 	def plot_evaluation_results(self):
 		# filter out retirement drivers
-		valid_rows = self.comparison_df[self.comparison_df["simulated_position"] != "R"].copy()
+		valid_rows = self.comparison_df[self.comparison_df["position_sim"] != "R"].copy()
 
 		# Convert columns to numeric
 		valid_rows["cumulative_time_sim"] = pd.to_numeric(valid_rows["cumulative_time_sim"], errors="coerce")

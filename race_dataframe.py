@@ -99,7 +99,7 @@ class RaceDataframe:
 
 		# Define the "overtake" column
 		race_df["overtake"] = (
-			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))  # Original condition
+			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))
 			& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
 		)
 

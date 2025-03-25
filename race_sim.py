@@ -67,6 +67,7 @@ class RaceSimulator:
 				"stint_laps_diff": 0,
 				"drs_available": False,
 				"retired": False,
+				"overtakes": 0,
 			})
 		return sim_data
 
@@ -229,6 +230,8 @@ class RaceSimulator:
 			ahead_pos = driver["position"] - 1
 			if driver["gap"] < 1 and ahead_pos > 0 and driver["predicted_overtake"]:
 				self.num_overtakes += 1
+				driver["overtakes"] += 1
+				
 				ahead_driver = next(d for d in active_drivers if d["position"] == ahead_pos)
 				# Swap positions and cumulative times
 				driver["position"], ahead_driver["position"] = ahead_driver["position"], driver["position"]
