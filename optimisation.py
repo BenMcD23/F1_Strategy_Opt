@@ -21,6 +21,16 @@ class Optimisation:
 		self.__given_driver = given_driver
 		self.__unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
 
+	def get_actual_strategy(self):
+
+		actual_strat = self.race_data.extract_driver_strategy(self.__given_driver)
+		actual_finishing_pos = self.race_data.get_driver_finishing_position(self.__given_driver)
+
+		return {
+			"actual_strat": actual_strat,
+			"actual_finishing_pos": actual_finishing_pos
+		}
+
 	def __map_to_nearest_tyre(self, value):
 		# Find the closest tyre type by minimizing the absolute difference
 		closest_tyre = min(self.__unique_tyre_types, key=lambda tyre: abs(tyre - value))
