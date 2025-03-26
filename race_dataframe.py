@@ -92,18 +92,15 @@ class RaceDataframe:
 
 		# Shift the "position" and "pit" columns
 		race_df["next_position"] = race_df.groupby("driver_name")["position"].shift(1)
-		race_df["next_pit"] = race_df.groupby("driver_name")["pit"].shift(-1)
 
-		# Handle NaN values in next_pit by filling them with False
+		race_df["next_pit"] = race_df.groupby("driver_name")["pit"].shift(-2)
+
 		race_df["next_pit"] = race_df["next_pit"].fillna(False)
 
 		# Define the "overtake" column
 		race_df["overtake"] = (
-			(
-				((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))
-				& (~race_df["next_pit"])  # Ensure the driver in the next position is not pitting
-			)
-			& ~((race_df["lap_num"] == 1) & (race_df["sector"] == 1))  # Exclude lap 1, sector 1
+			((race_df["next_position"] < race_df["position"]) | (race_df["next_position"].isna()))
+			& (~race_df["next_pit"])
 		)
 
 		# Cleanup and final sorting

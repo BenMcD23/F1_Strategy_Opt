@@ -181,8 +181,11 @@ class RaceSimEvaluation:
 
 		# Count actual overtakes for each driver
 		actual_overtakes_count = (
-			self.__actual_race_df[self.__actual_race_df["overtake"] == True]
-			.drop_duplicates(subset=["driver_name", "lap_num"])  # Keep only unique lap numbers per driver
+			self.__actual_race_df[
+				(self.__actual_race_df["overtake"] == True) & 
+				~((self.__actual_race_df["lap_num"] == 1) & (self.__actual_race_df["sector"] == 1))
+			]
+			.drop_duplicates(subset=["driver_name", "lap_num"])
 			.groupby("driver_name")
 			.size()
 			.rename("overtakes_actual")
