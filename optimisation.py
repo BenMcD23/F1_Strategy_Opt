@@ -25,10 +25,15 @@ class Optimisation:
 
 		actual_strat = self.race_data.extract_driver_strategy(self.__given_driver)
 		actual_finishing_pos = self.race_data.get_driver_finishing_position(self.__given_driver)
-
+		
+		sim = RaceSimulator(self.race_data, self.overtake_model, given_driver=self.__given_driver, simulated_strategy=actual_strat)
+		sim_data = sim.simulate()
+		sim_final_position = next(d["position"] for d in sim_data if d["driver_number"] == self.__given_driver)
+		
 		return {
 			"actual_strat": actual_strat,
-			"actual_finishing_pos": actual_finishing_pos
+			"actual_finishing_pos": actual_finishing_pos,
+			"simualted_finishing_pos": sim_final_position
 		}
 
 	def __map_to_nearest_tyre(self, value):

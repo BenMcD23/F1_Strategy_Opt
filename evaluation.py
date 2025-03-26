@@ -29,7 +29,7 @@ class RaceSimEvaluation:
 
 		def _calculate_gaps_to_leader(comparison_df):
 			active_drivers = comparison_df[comparison_df['position_sim'] != "R"]["driver_name"]
-
+			
 			sim_leader_time = self.__sim_df[self.__sim_df["position"] == 1]["cumulative_time"].values[0]
 
 			sim_gaps_to_leader = {
@@ -52,6 +52,7 @@ class RaceSimEvaluation:
 					max_lap_actual = actual_driver_data["lap_num"].max()
 					actual_driver_time = actual_driver_data["cumulative_time"].max()
 					actual_leader_time = actual_leader_times.get(max_lap_actual, None)
+					print(f"{driver} {max_lap_actual} {actual_driver_time} {actual_leader_time}")
 					actual_gaps_to_leader[driver] = actual_driver_time - actual_leader_time
 
 			# Add gaps to the leader to the main DataFrame
@@ -99,6 +100,16 @@ class RaceSimEvaluation:
 
 			return comparison_df
 
+		# Cumaltive time is re-calcualted using lap times as is more accurate
+		self.__actual_race_df["is_first_sector_of_lap"] = self.__actual_race_df.groupby(["driver_name", "lap_num"])["sector"].transform("min") == self.__actual_race_df["sector"]
+		self.__actual_race_df["cumulative_time"] = (
+			self.__actual_race_df[self.__actual_race_df["is_first_sector_of_lap"]]  # Filter rows where it's the first sector of the lap
+			.groupby("driver_name")["lap_time"]
+			.cumsum()
+		)
+		self.__actual_race_df["cumulative_time"] = self.__actual_race_df.groupby(["driver_name", "lap_num"])["cumulative_time"].ffill()
+		self.__actual_race_df = self.__actual_race_df.drop(columns=["is_first_sector_of_lap"])	
+		
 		# columns wanted from sim
 		sim_positions = self.__sim_df[["driver_name", "position", "overtakes"]].rename(
 			columns={"position": "position_sim", "overtakes": "overtakes_sim"}
@@ -316,31 +327,31 @@ class RaceSimEvaluation:
 											"gap_to_leader_sim", "gap_to_leader_actual"])
 
 		# Create subplots
-		fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+		# fig, axes = plt.subplots(1, 3, figsize=(20, 5))
+		fig, axes = plt.subplots(1, 2, figsize=(20, 5))
 
-		# Plot 1: Actual vs Simulated Cumulative Times
-		axes[0].scatter(valid_rows['cumulative_time_actual'], valid_rows['cumulative_time_sim'], alpha=0.7)
-		axes[0].set_xlabel('Actual Cumulative Times (s)')
-		axes[0].set_ylabel('Simulated Cumulative Times (s)')
-		axes[0].set_title('Actual vs. Simulated Cumulative Times')
-		axes[0].plot([valid_rows['cumulative_time_actual'].min(), valid_rows['cumulative_time_actual'].max()],
-					[valid_rows['cumulative_time_actual'].min(), valid_rows['cumulative_time_actual'].max()],
+		axes[0].scatter(valid_rows['position_actual'], valid_rows['position_sim'], alpha=0.7)
+		axes[0].set_xlabel('Actual Finishing Position')
+		axes[0].set_ylabel('Simulated Finishing Position')
+		axes[0].set_title('Actual vs. Simualted Finishing Position')
+
+		# Add a perfect fit line
+		axes[0].plot([valid_rows['position_actual'].min(), valid_rows['position_actual'].max()],
+					[valid_rows['position_actual'].min(), valid_rows['position_actual'].max()],
 					color='red', linestyle='--', label='Perfect Fit')
+
+		# Ensure ticks are sequential (1, 2, 3, ...)
+		x_ticks = range(int(valid_rows['position_actual'].min()), int(valid_rows['position_actual'].max()) + 1)
+		y_ticks = range(int(valid_rows['position_sim'].min()), int(valid_rows['position_sim'].max()) + 1)
+
+		axes[0].set_xticks(x_ticks)
+		axes[0].set_yticks(y_ticks)
+
+		# Add legend and grid
 		axes[0].legend()
 		axes[0].grid(True)
 
-		# Plot 2: Actual vs Simulated Gaps to First Place
-		axes[1].scatter(valid_rows['gap_to_leader_actual'], valid_rows['gap_to_leader_sim'], alpha=0.7)
-		axes[1].plot([valid_rows['gap_to_leader_actual'].min(), valid_rows['gap_to_leader_actual'].max()],
-					[valid_rows['gap_to_leader_actual'].min(), valid_rows['gap_to_leader_actual'].max()],
-					color='red', linestyle='--', label='Perfect Fit')
-		axes[1].set_xlabel("Actual Gap to First Place (s)")
-		axes[1].set_ylabel("Simulated Gap to First Place (s)")
-		axes[1].set_title("Actual vs. Simulated Gaps to First Place")
-		axes[1].legend()
-		axes[1].grid(True)
 
-		# Plot 3: Bland-Altman Plot for Gaps to First Place
 		mean_values = (valid_rows['gap_to_leader_actual'] + valid_rows['gap_to_leader_sim']) / 2
 		differences = valid_rows['gap_to_leader_sim'] - valid_rows['gap_to_leader_actual']
 
@@ -351,27 +362,32 @@ class RaceSimEvaluation:
 		lower_limit = mean_difference - 1.96 * std_difference
 
 		# Scatter plot
-		axes[2].scatter(mean_values, differences, alpha=0.7)
-		axes[2].axhline(y=0, color='r', linestyle='--')  # Add a reference line at zero
-		axes[2].axhline(y=upper_limit, color='g', linestyle='--')  # Upper limit
-		axes[2].axhline(y=lower_limit, color='g', linestyle='--')  # Lower limit
+		axes[1].scatter(mean_values, differences, alpha=0.7)
+		axes[1].axhline(y=0, color='r', linestyle='--')  # Add a reference line at zero
+		axes[1].axhline(y=upper_limit, color='g', linestyle='--')  # Upper limit
+		axes[1].axhline(y=lower_limit, color='g', linestyle='--')  # Lower limit
 
-		axes[2].text(
-			max(mean_values), mean_difference + 3,
+		y_min, y_max = axes[1].get_ylim()
+		y_range = y_max - y_min
+
+		offset = 0.02 * y_range
+
+		axes[1].text(
+			max(mean_values), mean_difference + offset,
 			f'Mean: {mean_difference:.2f}', color='red', va='center', ha='right'
 		)
-		axes[2].text(
-			max(mean_values), upper_limit + 4,
+		axes[1].text(
+			max(mean_values), upper_limit + offset,
 			f'+1.96 SD: {upper_limit:.2f}', color='green', va='center', ha='right'
 		)
-		axes[2].text(
-			max(mean_values), lower_limit - 5,
+		axes[1].text(
+			max(mean_values), lower_limit + offset,
 			f'-1.96 SD: {lower_limit:.2f}', color='green', va='center', ha='right'
 		)
 
-		axes[2].set_xlabel('Mean of Actual and Simulated Gaps')
-		axes[2].set_ylabel('Difference (Simulated - Actual)')
-		axes[2].set_title('Bland-Altman Plot for Gaps to First Place')
+		axes[1].set_xlabel('Mean of Actual and Simulated Gaps')
+		axes[1].set_ylabel('Difference (Simulated - Actual)')
+		axes[1].set_title('Bland-Altman Plot for Gaps to First Place')
 
 		plt.tight_layout()
 		plt.show()

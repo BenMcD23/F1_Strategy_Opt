@@ -57,8 +57,24 @@ class RaceDataframe:
 		Returns:
 			Pandas DF: _description_
 		"""
+
+		# avg_sector_times = (
+		# 	race_df.groupby(["driver_name", "sector"])["sector_time"]
+		# 	.mean()
+		# 	.reset_index(name="avg_sector_time")
+		# )
+
+		# # Step 2: Merge the average sector times back into the main DataFrame
+		# race_df = race_df.merge(avg_sector_times, on=["driver_name", "sector"], how="left")
+
+		# # Step 3: Fill NaN sector times with the corresponding average sector time
+		# race_df["sector_time"] = race_df["sector_time"].fillna(race_df["avg_sector_time"])
+
+		# # Drop the temporary column used for filling NaNs
+		# race_df = race_df.drop(columns=["avg_sector_time"])
+
 		race_df["cumulative_time"] = race_df.groupby("driver_name")["sector_time"].cumsum()
-	
+
 		# Calculate rolling pace (average lap time over the last 5 laps)
 		race_df["pace"] = (
 			race_df.groupby(["driver_name", "sector"])["sector_time"]
