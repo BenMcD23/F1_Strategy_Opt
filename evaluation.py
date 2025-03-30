@@ -52,7 +52,6 @@ class RaceSimEvaluation:
 					max_lap_actual = actual_driver_data["lap_num"].max()
 					actual_driver_time = actual_driver_data["cumulative_time"].max()
 					actual_leader_time = actual_leader_times.get(max_lap_actual, None)
-					print(f"{driver} {max_lap_actual} {actual_driver_time} {actual_leader_time}")
 					actual_gaps_to_leader[driver] = actual_driver_time - actual_leader_time
 
 			# Add gaps to the leader to the main DataFrame
@@ -100,16 +99,23 @@ class RaceSimEvaluation:
 
 			return comparison_df
 
-		# Cumaltive time is re-calcualted using lap times as is more accurate
-		self.__actual_race_df["is_first_sector_of_lap"] = self.__actual_race_df.groupby(["driver_name", "lap_num"])["sector"].transform("min") == self.__actual_race_df["sector"]
-		self.__actual_race_df["cumulative_time"] = (
-			self.__actual_race_df[self.__actual_race_df["is_first_sector_of_lap"]]  # Filter rows where it's the first sector of the lap
-			.groupby("driver_name")["lap_time"]
-			.cumsum()
+
+		# Filling any missing times with the average for that driver
+		avg_sector_times = (
+			self.__actual_race_df.groupby(["driver_name", "sector"])["sector_time"]
+			.mean()
+			.reset_index()
+			.rename(columns={"sector_time": "avg_sector_time"})
 		)
-		self.__actual_race_df["cumulative_time"] = self.__actual_race_df.groupby(["driver_name", "lap_num"])["cumulative_time"].ffill()
-		self.__actual_race_df = self.__actual_race_df.drop(columns=["is_first_sector_of_lap"])	
-		
+
+		# Merge the average sector times back into the original DataFrame
+		self.__actual_race_df = self.__actual_race_df.merge(avg_sector_times, on=["driver_name", "sector"], how="left")
+
+		# Fill missing sector times in the original column with the average sector time
+		self.__actual_race_df["sector_time"] = self.__actual_race_df["sector_time"].fillna(self.__actual_race_df["avg_sector_time"])
+		self.__actual_race_df = self.__actual_race_df.drop(columns=["avg_sector_time"])
+		self.__actual_race_df ["cumulative_time"] = self.__actual_race_df .groupby("driver_name")["sector_time"].cumsum()
+
 		# columns wanted from sim
 		sim_positions = self.__sim_df[["driver_name", "position", "overtakes"]].rename(
 			columns={"position": "position_sim", "overtakes": "overtakes_sim"}
@@ -213,6 +219,16 @@ class RaceSimEvaluation:
 		
 		comparison_df = _calculate_gaps_to_leader(comparison_df)
 		comparison_df = _calculate_errors(comparison_df)
+
+		# to sort the retired drivers by lap number
+		comparison_df['is_retired'] = comparison_df['position_sim'] == "R"
+		comparison_df = comparison_df.sort_values(
+			by=['is_retired', 'position_sim', 'laps_completed'],
+			ascending=[True, True, False]
+		)
+		comparison_df = comparison_df.drop(columns=['is_retired'])
+
+
 
 		return comparison_df[["driver_name", "laps_completed", "position_sim", "position_actual", "position_error", "overtakes_sim", "overtakes_actual", "overtake_error",
 							"cumulative_time_sim", "cumulative_time_actual", "cumulative_time_error", "gap_to_leader_sim", "gap_to_leader_actual", "gap_error"]]
