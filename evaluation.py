@@ -379,7 +379,7 @@ class RaceSimEvaluation:
 
 		# Scatter plot
 		axes[1].scatter(mean_values, differences, alpha=0.7)
-		axes[1].axhline(y=0, color='r', linestyle='--')  # Add a reference line at zero
+		axes[1].axhline(y=mean_difference, color='r', linestyle='--')  # Add a reference line at zero
 		axes[1].axhline(y=upper_limit, color='g', linestyle='--')  # Upper limit
 		axes[1].axhline(y=lower_limit, color='g', linestyle='--')  # Lower limit
 

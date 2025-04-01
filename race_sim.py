@@ -3,7 +3,7 @@ from sqlalchemy.orm import sessionmaker
 import sys
 import os
 import pandas as pd
-
+import copy
 
 # sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../")))
 from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, PitStop
@@ -22,10 +22,10 @@ class RaceSimulator:
 		self.__race_data = race_data      # a RaceDataSetup object
 		self.__overtake_model = overtake_model    # a OvertakingModel object
 
+		self.__given_driver = given_driver
+		self.__simulated_strategy = simulated_strategy
+		
 
-		# Update strategies if a specific driver and strategy are provided
-		if given_driver and simulated_strategy:
-			self.__race_data.driver_strategies[given_driver] = simulated_strategy
 
 		# Initialize drivers' data
 		self.sim_data = self.__initialize_drivers_data()
@@ -44,14 +44,20 @@ class RaceSimulator:
 		"""
 		Initialize the data structure for each driver.
 		"""
+		updated_driver_strategies = copy.deepcopy(self.__race_data.driver_strategies)
+
+		# Update strategies if a specific driver and strategy are provided
+		if self.__given_driver and self.__simulated_strategy:
+			updated_driver_strategies[self.__given_driver] = self.__simulated_strategy
+
 		sim_data = []
 		for driver in self.__race_data.drivers:
 			sim_data.append({
 				"driver_number": driver,
 				"driver_name": self.__race_data.driver_names[driver],
 				# "pit_schedule": {key: value for key, value in self.__race_data.driver_strategies[driver].items() if key != 1},
-				"pit_schedule": self.__race_data.driver_strategies[driver],
-				"tyre_type": self.__race_data.driver_strategies[driver][1],
+				"pit_schedule": updated_driver_strategies[driver],
+				"tyre_type": updated_driver_strategies[driver][1],
 				"lap_num": 0,
 				"sector": 0,
 				"sector_time": 0.0,

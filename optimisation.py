@@ -20,7 +20,7 @@ class Optimisation:
 		self.__initial_strategy = self.race_data.driver_strategies[given_driver]
 		self.__given_driver = given_driver
 		self.__unique_tyre_types = sorted(self.race_data.get_unique_tyre_types())
-
+		
 	def get_actual_strategy(self):
 
 		actual_strat = self.race_data.extract_driver_strategy(self.__given_driver)
