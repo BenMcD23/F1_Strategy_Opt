@@ -1,20 +1,8 @@
-from sqlalchemy import create_engine, func
-from sqlalchemy.orm import sessionmaker
-import sys
-import os
 import pandas as pd
 import copy
-
-# sys.path.append(os.path.abspath(os.path.join(os.getcwd(), "../")))
-from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, PitStop
-# from utils import correct_fuel_effect, extract_driver_strategies, get_base_sector_times, get_tyre_deg_per_driver, get_race_session, get_safety_car_penalty, get_driver_pit_time
-
+from collections import deque
 
 pd.set_option('future.no_silent_downcasting', True)
-
-
-from collections import deque
-import pandas as pd
 
 
 class RaceSimulator:
@@ -25,8 +13,6 @@ class RaceSimulator:
 		self.__given_driver = given_driver
 		self.__simulated_strategy = simulated_strategy
 		
-
-
 		# Initialize drivers' data
 		self.sim_data = self.__initialize_drivers_data()
 

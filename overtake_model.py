@@ -120,7 +120,6 @@ class OvertakingModel:
 		return accuracy, report
 
 
-
 	def train_with_test_split(self, test_size=0.2, random_state=32):
 		"""
 		Splits the data into training and testing sets, trains the model on the training set,
