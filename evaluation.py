@@ -270,13 +270,13 @@ class RaceSimEvaluation:
 		valid_rows = self.comparison_df[self.comparison_df["position_sim"] != "R"].copy()
 
 		# Calculate Spearman correlation for cumulative times
-		spearman_cumulative = spearmanr(
+		spearman_cumulative = spearmanr(   # scipy library
 			valid_rows["cumulative_time_actual"],
 			valid_rows["cumulative_time_sim"]
 		)
 
 		# Calculate Spearman correlation for gaps to the leader
-		spearman_gaps = spearmanr(
+		spearman_gaps = spearmanr(   # scipy library
 			valid_rows["gap_to_leader_actual"],
 			valid_rows["gap_to_leader_sim"]
 		)
@@ -303,12 +303,12 @@ class RaceSimEvaluation:
 		valid_rows = valid_rows.dropna(subset=["cumulative_time_error", "gap_error"])
 
 		# Calculate Wilcoxon test for cumulative times
-		wilcoxon_cumulative = wilcoxon(valid_rows["cumulative_time_error"])
+		wilcoxon_cumulative = wilcoxon(valid_rows["cumulative_time_error"])   # scipy library
 		n_cumulative = valid_rows["cumulative_time_error"].astype(bool).sum()  # Count non-zero values
 		expected_value_cumulative = n_cumulative * (n_cumulative + 1) / 4
 
 		# Calculate Wilcoxon test for gaps to the leader
-		wilcoxon_gaps = wilcoxon(valid_rows["gap_error"])
+		wilcoxon_gaps = wilcoxon(valid_rows["gap_error"])   # scipy library
 		n_gaps = valid_rows["gap_error"].astype(bool).sum()  # Count non-zero values
 		expected_value_gaps = n_gaps * (n_gaps + 1) / 4
 

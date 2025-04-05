@@ -1,5 +1,3 @@
-from DB.models import init_db, Circuit, Season, RacingWeekend, Driver, Session, SessionResult, Lap, Team, DriverTeamSession, PitStop
-from sqlalchemy import create_engine, func
 import pandas as pd
 
 class RaceDataframe:

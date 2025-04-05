@@ -22,7 +22,7 @@ class OvertakingModel:
 			"pace",
 			"pit"
 		]
-		self.__imputer = SimpleImputer(strategy='mean')  # Imputer for missing values
+		self.__imputer = SimpleImputer(strategy='mean')  # sklearn library - for missing values
 		self.__model = self.__train_overtaking_model()
 
 	def __train_overtaking_model(self):
@@ -34,11 +34,11 @@ class OvertakingModel:
 		X = self.__imputer.fit_transform(X)
 
 		# Resample the data using SMOTE
-		smote = SMOTE(random_state=42)
+		smote = SMOTE(random_state=42)    # imblearn library
 		X_resampled, y_resampled = smote.fit_resample(X, y)
 
 		# Train the GradientBoostingClassifier
-		gbc = GradientBoostingClassifier(
+		gbc = GradientBoostingClassifier(  # sklearn library
 			n_estimators=200,
 			learning_rate=0.05,
 			max_depth=3,
@@ -47,7 +47,7 @@ class OvertakingModel:
 		)
 
 		# Calibrate for better probabilities
-		model = CalibratedClassifierCV(gbc, method="sigmoid", cv=3)
+		model = CalibratedClassifierCV(gbc, method="sigmoid", cv=3)  # sklearn library
 		model.fit(X_resampled, y_resampled)
 
 		return model
@@ -109,10 +109,10 @@ class OvertakingModel:
 		predicted_overtakes = self.predict_overtake(X_test)
 
 		# Evaluate performance
-		accuracy = accuracy_score(y_test, predicted_overtakes)
+		accuracy = accuracy_score(y_test, predicted_overtakes)  # sklearn library
 
 		# Generate classification report
-		report = classification_report(
+		report = classification_report(  # sklearn library
 			y_test,
 			predicted_overtakes,
 			target_names=["No Overtake", "Overtake"]
@@ -138,17 +138,17 @@ class OvertakingModel:
 		y = self.__race_df["overtake"].values
 
 		# Split the data into training and testing sets
-		X_train, X_test, y_train, y_test = train_test_split(
+		X_train, X_test, y_train, y_test = train_test_split(  # sklearn library
 			X, y, test_size=test_size, random_state=random_state, stratify=y
 		)
 
 		# Handle missing values using the imputer
-		X_train = self.__imputer.fit_transform(X_train)
-		X_test = self.__imputer.transform(X_test)
+		X_train = self.__imputer.fit_transform(X_train)  # sklearn library
+		X_test = self.__imputer.transform(X_test)  # sklearn library
 
 		# Resample the data using SMOTE
-		smote = SMOTE(random_state=42)
-		X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+		smote = SMOTE(random_state=42)    # imblearn library
+		X_resampled, y_resampled = smote.fit_resample(X_train, y_train)  # sklearn library
 
 		# Train the GradientBoostingClassifier
 		gbc = GradientBoostingClassifier(
@@ -160,14 +160,14 @@ class OvertakingModel:
 		)
 
 		# Calibrate for better probabilities
-		model = CalibratedClassifierCV(gbc, method="sigmoid", cv=3)
+		model = CalibratedClassifierCV(gbc, method="sigmoid", cv=3)  # sklearn library
 		model.fit(X_resampled, y_resampled)
 
 
 		# Evaluate the model on the test set
 		predictions = model.predict(X_test)
-		accuracy = accuracy_score(y_test, predictions)
-		report = classification_report(
+		accuracy = accuracy_score(y_test, predictions)  # sklearn library
+		report = classification_report(  # sklearn library
 			y_test,
 			predictions,
 			target_names=["No Overtake", "Overtake"]

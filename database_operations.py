@@ -15,6 +15,7 @@ class DatabaseOperations:
 	@classmethod
 	def _init_db(cls):
 		if cls._Session is None:
+			# sqlalchemy library code
 			Base = declarative_base()
 			cls._engine = create_engine('sqlite:////home/ben/Individual_Project/DB/f1_data.db')
 			cls._Session = sessionmaker(bind=cls._engine)

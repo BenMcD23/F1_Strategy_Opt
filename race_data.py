@@ -217,7 +217,7 @@ class RaceDataSetup:
 						initial_guess = [0.001, 0.1, y[0]]  # Small positive values for [a, b, c]
 
 						# Perform constrained optimization
-						result = minimize(objective, initial_guess, constraints=constraints)
+						result = minimize(objective, initial_guess, constraints=constraints)    # scipy library
 						a, b, c = result.x
 
 						# Store the coefficients

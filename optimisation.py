@@ -94,7 +94,7 @@ class Optimisation:
 				return -20.0  # Penalize errors
 
 		# Initialize the Bayesian optimiser
-		optimiser = BayesianOptimization(
+		optimiser = BayesianOptimization(     # bayes_opt library
 			f=objective_function,
 			pbounds=pbounds,
 			verbose=2,
@@ -237,7 +237,7 @@ class Optimisation:
 		stats.register("min", lambda x: min(val[0] for val in x))
 		stats.register("max", lambda x: max(val[0] for val in x))
 
-		population, logbook = algorithms.eaSimple(
+		population, logbook = algorithms.eaSimple(     # deap library
 			population,
 			toolbox,
 			cxpb=0.7,  # Crossover probability
